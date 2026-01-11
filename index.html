@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMYK Lithophane Designer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-container">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+        <h2 style="margin-top:0; color:#fff;">Designer</h2>
+        
+        <div class="control-group">
+            <label>1. Assets</label>
+            <input type="file" id="photoInput" accept="image/*">
+            <div class="helper-text">Select your color photo</div>
+            <input type="file" id="maskInput" accept="image/*">
+            <div class="helper-text">Select your shape (Black/White)</div>
+        </div>
+
+        <div class="control-group">
+            <label>2. Select Layer to Edit</label>
+            <div class="layer-select">
+                <div class="layer-btn active" id="btn-mask" onclick="selectLayer('mask')">Edit Mask</div>
+                <div class="layer-btn" id="btn-photo" onclick="selectLayer('photo')">Edit Photo</div>
+            </div>
+            <div class="instructions">
+                • Drag corners to <b>Resize</b><br>
+                • Drag top handle to <b>Rotate</b><br>
+                • Drag inside box to <b>Move</b>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>3. Final Dimensions (Mask)</label>
+            <div class="dim-row">
+                <div>
+                    <span class="dim-label">Width</span><br>
+                    <input type="number" id="inpWidth" class="dim-input" onchange="updateDims('w')">
+                </div>
+                <div class="dim-x">x</div>
+                <div>
+                    <span class="dim-label">Height</span><br>
+                    <input type="number" id="inpHeight" class="dim-input" onchange="updateDims('h')">
+                </div>
+                <div style="padding-top:15px;">
+                    <select id="unitSelect" class="unit-toggle" onchange="updateUnitDisplay()">
+                        <option value="mm">mm</option>
+                        <option value="in">in</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <button class="process-btn" onclick="generateLayers()">Generate CMYK Layers</button>
+    </div>
+
+    <!-- MAIN CANVAS -->
+    <div class="canvas-area">
+        <canvas id="editorCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <!-- OUTPUTS -->
+    <div class="output-section">
+        <h3 style="margin-top:0; color:#fff;">Generated Layers Preview</h3>
+        <div class="preview-grid">
+            <div class="channel-card"><h4>Composite Preview</h4><canvas id="refCanvas"></canvas></div>
+            <div class="channel-card"><h4>Cyan (Thickness)</h4><canvas id="cCanvas"></canvas></div>
+            <div class="channel-card"><h4>Magenta (Thickness)</h4><canvas id="mCanvas"></canvas></div>
+            <div class="channel-card"><h4>Yellow (Thickness)</h4><canvas id="yCanvas"></canvas></div>
+            <div class="channel-card"><h4>White (Base)</h4><canvas id="wCanvas"></canvas></div>
+        </div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
