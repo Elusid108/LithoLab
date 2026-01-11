@@ -1,7 +1,8 @@
 /**
- * CMYK DESIGNER ENGINE v3.1
- * - Fixed: Dimensions now scale based on Mask Width (not canvas width)
- * - Fixed: "Sandwich" Layering (White -> C -> M -> Y -> White) for correct internal coloring
+ * CMYK DESIGNER ENGINE v3.2
+ * - Resolution: Increased to High (Step 1-2 pixels) for sharp mask edges.
+ * - 3MF Metadata: Added Object Names (Cyan, Magenta, etc.) and Color Hex Codes.
+ * - Logic: Objects are now assigned specific material IDs so slicers recognize colors.
  */
 
 // --- CONFIGURATION ---
@@ -19,9 +20,9 @@ const state = {
     
     // Export Settings
     export: { 
-        width: 100,      // Final physical width (mm)
-        height: 100,     // Final physical height (mm)
-        resolution: 0.25 // Step size (lower = higher res)
+        width: 100,      
+        height: 100,     
+        pixelStep: 1     // 1 = Every pixel (Max Quality), 2 = Every 2nd pixel (Good balance)
     },
     
     // Layer Objects
@@ -301,27 +302,25 @@ function generateLayers() {
     btn.style.background = "#00d26a";
     btn.style.color = "#000";
 
+    // Auto-Set Quality based on image size to prevent crashing
+    // 2MP+ images get step 2, smaller get step 1
+    const totalPixels = cvs.width * cvs.height;
+    state.export.pixelStep = (totalPixels > 2000000) ? 2 : 1; 
+
     const w = cvs.width;
     const h = cvs.height;
     const data = ctx.getImageData(0,0,w,h).data;
 
-    // Calculate Mask Bounding Box in Pixels
-    // We need this to determine the Active Area for correct physical scaling
     let minX = w, maxX = 0;
     
-    // We scan to find the actual width of the shape in pixels
-    // This allows us to map "120mm" to the shape width, not the canvas width
-    let validPixelCount = 0;
-
-    // Initialize Arrays
     state.pixelData = { 
         width: w, height: h,
         c: new Uint8Array(w * h), m: new Uint8Array(w * h), y: new Uint8Array(w * h), w: new Uint8Array(w * h),
         mask: new Uint8Array(w * h),
-        maskBounds: { width: w } // Default fallback
+        maskBounds: { width: w } 
     };
 
-    // First Pass: Data Extraction & Bounds Check
+    // Data Extraction
     for (let y=0; y<h; y++) {
         for (let x=0; x<w; x++) {
             const i = (y * w + x) * 4;
@@ -332,10 +331,8 @@ function generateLayers() {
                 state.pixelData.mask[p] = 1;
                 if (x < minX) minX = x;
                 if (x > maxX) maxX = x;
-                validPixelCount++;
                 
                 const r = data[i]; const g = data[i+1]; const b = data[i+2];
-                // CMYK Subtractive Logic
                 state.pixelData.c[p] = 255 - r;
                 state.pixelData.m[p] = 255 - g;
                 state.pixelData.y[p] = 255 - b;
@@ -346,7 +343,6 @@ function generateLayers() {
         }
     }
     
-    // Store the actual pixel width of the shape for scaling later
     if (maxX > minX) {
         state.pixelData.maskBounds.width = maxX - minX;
     }
@@ -391,75 +387,55 @@ async function download3MF() {
     zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
     zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
 
-    // SCALING FIX:
-    // Scale = DesiredPhysicalWidth / ActivePixelWidth
-    // This ensures 120mm input = 120mm printed object, regardless of empty canvas space.
     const activeWidth = state.pixelData.maskBounds.width || state.pixelData.width;
     const scale = state.export.width / activeWidth;
     
-    // LAYER CONFIGURATION (Sandwich Method)
-    // Z-Values are cumulative to stack layers internally
+    // LAYER CONFIGURATION
+    // Defined with Name, Color (Hex), Data source, Z start, Z thickness
     const layers = [
-        // 1. White Base (0.0 - 0.4mm)
-        { id: 4, data: state.pixelData.w, zStart: 0.0, zThick: 0.4, isBase: true },
-        // 2. Cyan (0.4 - 1.0mm) - Variable thickness up to 0.6mm
-        { id: 1, data: state.pixelData.c, zStart: 0.4, zThick: 0.6 },
-        // 3. Magenta (1.0 - 1.6mm)
-        { id: 2, data: state.pixelData.m, zStart: 1.0, zThick: 0.6 },
-        // 4. Yellow (1.6 - 2.2mm)
-        { id: 3, data: state.pixelData.y, zStart: 1.6, zThick: 0.6 },
-        // 5. White Top (2.2 - 3.2mm) - Variable Detail Layer
-        { id: 4, data: state.pixelData.w, zStart: 2.2, zThick: 1.0 } 
+        { name: "White Base", color: "#FFFFFF", id: 4, data: state.pixelData.w, zStart: 0.0, zThick: 0.4, isBase: true },
+        { name: "Cyan",       color: "#00FFFF", id: 1, data: state.pixelData.c, zStart: 0.4, zThick: 0.6 },
+        { name: "Magenta",    color: "#FF00FF", id: 2, data: state.pixelData.m, zStart: 1.0, zThick: 0.6 },
+        { name: "Yellow",     color: "#FFFF00", id: 3, data: state.pixelData.y, zStart: 1.6, zThick: 0.6 },
+        { name: "White Top",  color: "#FFFFFF", id: 4, data: state.pixelData.w, zStart: 2.2, zThick: 1.0 } 
     ];
 
-    let modelXML = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"><resources>`;
+    // Build Material Resources (Color Defs)
+    let resources = `<resources><basematerials id="100">`;
+    layers.forEach((l, idx) => {
+        resources += `<base name="${l.name}" displaycolor="${l.color}" />`;
+    });
+    resources += `</basematerials>`;
+
     let buildXML = `<build>`;
-
-    // We generate a separate object for each layer
-    // Note: ID 4 (White) is used twice, but as separate meshes in the build? 
-    // Actually, 3MF objects need unique IDs.
-    
     let objId = 1;
-    
-    // Generate Base (Solid Block)
-    modelXML += generateMeshString(objId, layers[0].data, scale, layers[0].zStart, layers[0].zThick, true);
-    buildXML += `<item objectid="${objId}" />`;
-    objId++; // 2 = Cyan
-    modelXML += generateMeshString(objId, layers[1].data, scale, layers[1].zStart, layers[1].zThick, false);
-    buildXML += `<item objectid="${objId}" />`;
-    objId++; // 3 = Magenta
-    modelXML += generateMeshString(objId, layers[2].data, scale, layers[2].zStart, layers[2].zThick, false);
-    buildXML += `<item objectid="${objId}" />`;
-    objId++; // 4 = Yellow
-    modelXML += generateMeshString(objId, layers[3].data, scale, layers[3].zStart, layers[3].zThick, false);
-    buildXML += `<item objectid="${objId}" />`;
-    objId++; // 5 = Top White
-    modelXML += generateMeshString(objId, layers[4].data, scale, layers[4].zStart, layers[4].zThick, false);
-    buildXML += `<item objectid="${objId}" />`;
+    let meshXML = "";
 
-    const finalXML = modelXML + `</resources>` + buildXML + `</build></model>`;
+    // Generate Objects
+    for(let i=0; i<layers.length; i++) {
+        const l = layers[i];
+        // We link the object to the material using pid="100" and pindex="i"
+        meshXML += generateMeshString(objId, l.name, 100, i, l.data, scale, l.zStart, l.zThick, l.isBase);
+        buildXML += `<item objectid="${objId}" />`;
+        objId++;
+    }
+
+    const finalXML = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel">` 
+                     + resources + meshXML + `</resources>` + buildXML + `</model>`;
     
     zip.folder("3D").file("3dmodel.model", finalXML);
     const content = await zip.generateAsync({type:"blob"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(content);
-    a.download = "lithophane_sandwich.3mf";
+    a.download = "lithophane_cmyk.3mf";
     a.click();
 }
 
-/**
- * GENERATES A MESH
- * @param {number} id - Object ID
- * @param {Uint8Array} valArray - 0-255 data
- * @param {number} s - Scale
- * @param {number} zOffset - Bottom Z height
- * @param {number} zMax - Max thickness added to offset
- * @param {boolean} isFlat - If true, ignores data and makes flat block (for base)
- */
-function generateMeshString(id, valArray, s, zOffset, zMax, isFlat) {
+function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, zMax, isFlat) {
     const w = state.pixelData.width;
     const h = state.pixelData.height;
-    const skip = Math.max(1, Math.floor(1 / (state.export.resolution || 0.25))); 
+    // QUALITY: Use calculated pixelStep (1 or 2)
+    const skip = state.export.pixelStep; 
     
     let vertices = "";
     let triangles = "";
@@ -469,7 +445,6 @@ function generateMeshString(id, valArray, s, zOffset, zMax, isFlat) {
     const gridH = Math.floor(h / skip);
     const vIDs = new Int32Array(gridW * gridH).fill(-1);
 
-    // 1. Generate Vertices
     for (let gy = 0; gy < gridH; gy++) {
         for (let gx = 0; gx < gridW; gx++) {
             const px = gx * skip;
@@ -477,14 +452,10 @@ function generateMeshString(id, valArray, s, zOffset, zMax, isFlat) {
             const idx = py * w + px;
 
             if (state.pixelData.mask[idx] === 1) {
-                // For color layers: Thickness depends on pixel value (0-255)
-                // If isFlat (Base): Thickness is always full zMax
                 const density = isFlat ? 1.0 : (valArray[idx] / 255);
                 const height = zMax * density; 
                 
-                // Bottom Vertex (Z = zOffset)
                 vertices += `<vertex x="${(px * s).toFixed(2)}" y="${(py * s).toFixed(2)}" z="${zOffset.toFixed(2)}" />`;
-                // Top Vertex (Z = zOffset + height)
                 vertices += `<vertex x="${(px * s).toFixed(2)}" y="${(py * s).toFixed(2)}" z="${(zOffset + height).toFixed(2)}" />`;
                 
                 vIDs[gy * gridW + gx] = vCount;
@@ -493,7 +464,6 @@ function generateMeshString(id, valArray, s, zOffset, zMax, isFlat) {
         }
     }
 
-    // 2. Generate Triangles
     for (let gy = 0; gy < gridH - 1; gy++) {
         for (let gx = 0; gx < gridW - 1; gx++) {
             const tl = vIDs[gy * gridW + gx];
@@ -502,17 +472,16 @@ function generateMeshString(id, valArray, s, zOffset, zMax, isFlat) {
             const br = vIDs[(gy + 1) * gridW + (gx + 1)];
 
             if (tl !== -1 && tr !== -1 && bl !== -1 && br !== -1) {
-                // Top Surface
                 triangles += `<triangle v1="${tl+1}" v2="${bl+1}" v3="${br+1}" />`;
                 triangles += `<triangle v1="${tl+1}" v2="${br+1}" v3="${tr+1}" />`;
-                // Bottom Surface
                 triangles += `<triangle v1="${tl}" v2="${br}" v3="${bl}" />`;
                 triangles += `<triangle v1="${tl}" v2="${tr}" v3="${br}" />`;
             }
         }
     }
 
-    return `<object id="${id}" type="model"><mesh><vertices>${vertices}</vertices><triangles>${triangles}</triangles></mesh></object>`;
+    // Add Name and Material properties to Object
+    return `<object id="${id}" name="${name}" pid="${matPid}" pindex="${matPindex}" type="model"><mesh><vertices>${vertices}</vertices><triangles>${triangles}</triangles></mesh></object>`;
 }
 
 init();
