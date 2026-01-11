@@ -1,0 +1,223 @@
+body { 
+    font-family: 'Inter', sans-serif; 
+    background: #121212; 
+    color: #e0e0e0; 
+    padding: 20px; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    min-height: 100vh;
+    margin: 0;
+}
+
+.app-container { 
+    display: grid; 
+    grid-template-columns: 350px 1fr; 
+    gap: 20px; 
+    width: 100%; 
+    max-width: 1400px; 
+}
+
+/* Sidebar Controls */
+.sidebar { 
+    background: #1e1e1e; 
+    padding: 20px; 
+    border-radius: 12px; 
+    height: fit-content; 
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+
+.control-group { 
+    margin-bottom: 20px; 
+    border-bottom: 1px solid #333; 
+    padding-bottom: 20px; 
+}
+
+.control-group:last-child { 
+    border-bottom: none; 
+}
+
+label { 
+    display: block; 
+    font-size: 12px; 
+    color: #888; 
+    margin-bottom: 5px; 
+    font-weight: 600; 
+    text-transform: uppercase; 
+    letter-spacing: 0.5px;
+}
+
+input[type="file"] { 
+    width: 100%; 
+    font-size: 12px; 
+    color: #ccc; 
+    margin-bottom: 10px; 
+    background: #2d2d2d;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #333;
+    box-sizing: border-box;
+}
+
+.helper-text {
+    font-size: 10px; 
+    color: #666; 
+    margin-top: -5px; 
+    margin-bottom: 10px;
+}
+
+/* Layer Selector */
+.layer-select { 
+    display: flex; 
+    gap: 10px; 
+    margin-bottom: 15px; 
+}
+
+.layer-btn { 
+    flex: 1; 
+    padding: 10px; 
+    background: #333; 
+    border: 2px solid #333; 
+    color: white; 
+    border-radius: 6px; 
+    cursor: pointer; 
+    text-align: center; 
+    font-weight: 600; 
+    transition: all 0.2s;
+}
+
+.layer-btn:hover {
+    background: #3a3a3a;
+}
+
+.layer-btn.active { 
+    border-color: #00d26a; 
+    background: #2a3b32; 
+    color: #00d26a; 
+}
+
+.instructions {
+    font-size: 11px; 
+    color: #666; 
+    margin-top: 5px; 
+    line-height: 1.4;
+}
+
+/* Dimensions Inputs */
+.dim-row { 
+    display: flex; 
+    gap: 10px; 
+    align-items: center; 
+}
+
+.dim-label {
+    font-size: 10px; 
+    color: #888;
+}
+
+.dim-input { 
+    background: #2d2d2d; 
+    border: 1px solid #444; 
+    color: white; 
+    padding: 8px; 
+    border-radius: 4px; 
+    width: 80px; 
+    text-align: right; 
+    font-family: 'Inter', monospace;
+}
+
+.dim-x {
+    padding-top: 15px; 
+    color: #555;
+}
+
+.unit-toggle { 
+    background: #2d2d2d; 
+    border: 1px solid #444; 
+    color: white; 
+    padding: 8px; 
+    border-radius: 4px; 
+    cursor: pointer; 
+}
+
+/* Canvas Area */
+.canvas-area { 
+    position: relative; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    background: #1e1e1e; 
+    border-radius: 12px; 
+    padding: 20px; 
+    overflow: hidden; 
+    min-height: 600px; 
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+}
+
+canvas#editorCanvas { 
+    background-image: radial-gradient(#333 1px, transparent 1px); 
+    background-size: 20px 20px; 
+    background-color: #262626; 
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+    cursor: default; 
+}
+
+button.process-btn { 
+    background: #00d26a; 
+    color: #000; 
+    width: 100%; 
+    padding: 15px; 
+    font-weight: bold; 
+    font-size: 16px; 
+    border: none; 
+    border-radius: 8px; 
+    cursor: pointer; 
+    margin-top: 10px; 
+    transition: 0.2s; 
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+button.process-btn:hover { 
+    background: #00ff80; 
+    transform: translateY(-2px); 
+    box-shadow: 0 4px 12px rgba(0, 210, 106, 0.3);
+}
+
+/* Output Preview */
+.output-section { 
+    grid-column: 1 / -1; 
+    margin-top: 20px; 
+    background: #1e1e1e; 
+    padding: 20px; 
+    border-radius: 12px; 
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+
+.preview-grid { 
+    display: grid; 
+    grid-template-columns: repeat(5, 1fr); 
+    gap: 15px; 
+    margin-top: 15px;
+}
+
+.channel-card {
+    background: #262626;
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.channel-card canvas { 
+    width: 100%; 
+    border: 1px solid #333; 
+    border-radius: 4px;
+    background-image: linear-gradient(45deg, #333 25%, transparent 25%), linear-gradient(-45deg, #333 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333 75%), linear-gradient(-45deg, transparent 75%, #333 75%);
+    background-size: 10px 10px;
+}
+
+.channel-card h4 { 
+    font-size: 12px; 
+    text-align: center; 
+    color: #888; 
+    margin: 0 0 8px 0;
+}
