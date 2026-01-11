@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CMYK Lithophane Designer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <!-- Links to the external style sheet -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,42 +12,58 @@
 <div class="app-container">
     <!-- SIDEBAR -->
     <div class="sidebar">
-        <h2 style="margin-top:0; color:#fff;">Designer</h2>
         
-        <div class="control-group">
-            <label>1. Assets</label>
-            <input type="file" id="photoInput" accept="image/*">
-            <div class="helper-text">Select your color photo</div>
-            <input type="file" id="maskInput" accept="image/*">
-            <div class="helper-text">Select your shape (Black/White)</div>
+        <!-- Section 1: Uploads -->
+        <div class="control-section">
+            <h3>1. Upload Assets</h3>
+            <div class="upload-grid">
+                <div class="upload-card">
+                    <div class="upload-label">
+                        <span class="upload-icon" style="background:#00d26a;"></span>
+                        Photo (Color)
+                    </div>
+                    <input type="file" id="photoInput" accept="image/*">
+                </div>
+                
+                <div class="upload-card">
+                    <div class="upload-label">
+                        <span class="upload-icon" style="background:#fff;"></span>
+                        Mask Shape (Black/White)
+                    </div>
+                    <input type="file" id="maskInput" accept="image/*">
+                </div>
+            </div>
         </div>
 
-        <div class="control-group">
-            <label>2. Select Layer to Edit</label>
+        <!-- Section 2: Edit Controls -->
+        <div class="control-section">
+            <h3>2. Edit & Arrange</h3>
             <div class="layer-select">
                 <div class="layer-btn active" id="btn-mask" onclick="selectLayer('mask')">Edit Mask</div>
                 <div class="layer-btn" id="btn-photo" onclick="selectLayer('photo')">Edit Photo</div>
             </div>
             <div class="instructions">
-                • Drag corners to <b>Resize</b><br>
-                • Drag top handle to <b>Rotate</b><br>
-                • Drag inside box to <b>Move</b>
+                <strong>Controls:</strong><br>
+                • <b>Drag Corners:</b> Resize Selection<br>
+                • <b>Drag Top Handle:</b> Rotate Selection<br>
+                • <b>Drag Middle:</b> Move Selection
             </div>
         </div>
 
-        <div class="control-group">
-            <label>3. Final Dimensions (Mask)</label>
+        <!-- Section 3: Dimensions -->
+        <div class="control-section">
+            <h3>3. Final Dimensions (Export Size)</h3>
             <div class="dim-row">
-                <div>
-                    <span class="dim-label">Width</span><br>
+                <div class="dim-group">
+                    <span class="dim-label">Width</span>
                     <input type="number" id="inpWidth" class="dim-input" onchange="updateDims('w')">
                 </div>
                 <div class="dim-x">x</div>
-                <div>
-                    <span class="dim-label">Height</span><br>
+                <div class="dim-group">
+                    <span class="dim-label">Height</span>
                     <input type="number" id="inpHeight" class="dim-input" onchange="updateDims('h')">
                 </div>
-                <div style="padding-top:15px;">
+                <div>
                     <select id="unitSelect" class="unit-toggle" onchange="updateUnitDisplay()">
                         <option value="mm">mm</option>
                         <option value="in">in</option>
@@ -78,7 +93,6 @@
     </div>
 </div>
 
-<!-- Links to the external script file -->
 <script src="script.js"></script>
 </body>
 </html>

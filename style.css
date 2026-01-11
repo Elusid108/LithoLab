@@ -1,3 +1,4 @@
+/* --- STYLES START --- */
 body { 
     font-family: 'Inter', sans-serif; 
     background: #121212; 
@@ -25,82 +26,106 @@ body {
     border-radius: 12px; 
     height: fit-content; 
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 }
 
-.control-group { 
-    margin-bottom: 20px; 
-    border-bottom: 1px solid #333; 
-    padding-bottom: 20px; 
+.control-section {
+    border-bottom: 1px solid #333;
+    padding-bottom: 20px;
+}
+.control-section:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
 }
 
-.control-group:last-child { 
-    border-bottom: none; 
-}
-
-label { 
-    display: block; 
-    font-size: 12px; 
-    color: #888; 
-    margin-bottom: 5px; 
-    font-weight: 600; 
-    text-transform: uppercase; 
+h3 {
+    margin: 0 0 15px 0;
+    font-size: 14px;
+    color: #fff;
+    text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+/* Upload Cards */
+.upload-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.upload-card {
+    background: #2d2d2d;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    transition: border-color 0.2s;
+}
+
+.upload-card:hover {
+    border-color: #555;
+}
+
+.upload-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    color: #fff;
+    margin-bottom: 8px;
+}
+
+.upload-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-block;
+    border-radius: 50%;
 }
 
 input[type="file"] { 
     width: 100%; 
-    font-size: 12px; 
-    color: #ccc; 
-    margin-bottom: 10px; 
-    background: #2d2d2d;
-    padding: 8px;
-    border-radius: 4px;
-    border: 1px solid #333;
-    box-sizing: border-box;
-}
-
-.helper-text {
-    font-size: 10px; 
-    color: #666; 
-    margin-top: -5px; 
-    margin-bottom: 10px;
+    font-size: 11px; 
+    color: #aaa; 
 }
 
 /* Layer Selector */
 .layer-select { 
     display: flex; 
     gap: 10px; 
-    margin-bottom: 15px; 
 }
-
 .layer-btn { 
     flex: 1; 
-    padding: 10px; 
-    background: #333; 
+    padding: 12px; 
+    background: #2d2d2d; 
     border: 2px solid #333; 
-    color: white; 
+    color: #888; 
     border-radius: 6px; 
     cursor: pointer; 
     text-align: center; 
     font-weight: 600; 
+    font-size: 13px;
     transition: all 0.2s;
 }
-
 .layer-btn:hover {
     background: #3a3a3a;
+    color: #fff;
 }
-
 .layer-btn.active { 
     border-color: #00d26a; 
-    background: #2a3b32; 
+    background: rgba(0, 210, 106, 0.1); 
     color: #00d26a; 
 }
 
 .instructions {
     font-size: 11px; 
     color: #666; 
-    margin-top: 5px; 
-    line-height: 1.4;
+    margin-top: 10px; 
+    line-height: 1.5;
+    padding: 10px;
+    background: #262626;
+    border-radius: 6px;
 }
 
 /* Dimensions Inputs */
@@ -108,36 +133,43 @@ input[type="file"] {
     display: flex; 
     gap: 10px; 
     align-items: center; 
+    background: #2d2d2d;
+    padding: 10px;
+    border-radius: 6px;
 }
-
+.dim-group {
+    flex: 1;
+}
 .dim-label {
     font-size: 10px; 
     color: #888;
+    display: block;
+    margin-bottom: 4px;
 }
-
 .dim-input { 
-    background: #2d2d2d; 
+    background: #1e1e1e; 
     border: 1px solid #444; 
     color: white; 
     padding: 8px; 
     border-radius: 4px; 
-    width: 80px; 
+    width: 100%; 
     text-align: right; 
     font-family: 'Inter', monospace;
+    box-sizing: border-box;
 }
-
 .dim-x {
-    padding-top: 15px; 
     color: #555;
+    font-weight: bold;
+    padding-top: 12px;
 }
-
 .unit-toggle { 
-    background: #2d2d2d; 
+    background: #1e1e1e; 
     border: 1px solid #444; 
     color: white; 
     padding: 8px; 
     border-radius: 4px; 
     cursor: pointer; 
+    margin-top: 14px;
 }
 
 /* Canvas Area */
@@ -151,14 +183,13 @@ input[type="file"] {
     padding: 20px; 
     overflow: hidden; 
     min-height: 600px; 
-    box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.5);
 }
-
 canvas#editorCanvas { 
     background-image: radial-gradient(#333 1px, transparent 1px); 
     background-size: 20px 20px; 
     background-color: #262626; 
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5); 
     cursor: default; 
 }
 
@@ -172,12 +203,10 @@ button.process-btn {
     border: none; 
     border-radius: 8px; 
     cursor: pointer; 
-    margin-top: 10px; 
     transition: 0.2s; 
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
-
 button.process-btn:hover { 
     background: #00ff80; 
     transform: translateY(-2px); 
@@ -193,20 +222,17 @@ button.process-btn:hover {
     border-radius: 12px; 
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 }
-
 .preview-grid { 
     display: grid; 
     grid-template-columns: repeat(5, 1fr); 
     gap: 15px; 
     margin-top: 15px;
 }
-
 .channel-card {
     background: #262626;
     padding: 10px;
     border-radius: 8px;
 }
-
 .channel-card canvas { 
     width: 100%; 
     border: 1px solid #333; 
@@ -214,10 +240,10 @@ button.process-btn:hover {
     background-image: linear-gradient(45deg, #333 25%, transparent 25%), linear-gradient(-45deg, #333 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333 75%), linear-gradient(-45deg, transparent 75%, #333 75%);
     background-size: 10px 10px;
 }
-
 .channel-card h4 { 
     font-size: 12px; 
     text-align: center; 
     color: #888; 
     margin: 0 0 8px 0;
 }
+/* --- STYLES END --- */
