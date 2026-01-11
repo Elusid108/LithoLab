@@ -1,8 +1,8 @@
 /**
- * CMYK DESIGNER ENGINE v3.2
- * - Resolution: Increased to High (Step 1-2 pixels) for sharp mask edges.
- * - 3MF Metadata: Added Object Names (Cyan, Magenta, etc.) and Color Hex Codes.
- * - Logic: Objects are now assigned specific material IDs so slicers recognize colors.
+ * CMYK DESIGNER ENGINE v3.3 (Stability Fixes)
+ * - Fixed: switched to Array.join() for large mesh generation to prevent memory crashes.
+ * - Fixed: Added Number checks to prevent NaN/Infinity in XML (Common cause of "No Geometry" error).
+ * - Fixed: Updated Color Hex to 8-digit (#FFRRGGBB) for strict 3MF compliance.
  */
 
 // --- CONFIGURATION ---
@@ -302,8 +302,6 @@ function generateLayers() {
     btn.style.background = "#00d26a";
     btn.style.color = "#000";
 
-    // Auto-Set Quality based on image size to prevent crashing
-    // 2MP+ images get step 2, smaller get step 1
     const totalPixels = cvs.width * cvs.height;
     state.export.pixelStep = (totalPixels > 2000000) ? 2 : 1; 
 
@@ -388,19 +386,21 @@ async function download3MF() {
     zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
 
     const activeWidth = state.pixelData.maskBounds.width || state.pixelData.width;
-    const scale = state.export.width / activeWidth;
+    let scale = state.export.width / activeWidth;
     
+    // SAFETY: Prevent Infinite scale if something went wrong
+    if (!isFinite(scale) || scale === 0) scale = 1;
+
     // LAYER CONFIGURATION
-    // Defined with Name, Color (Hex), Data source, Z start, Z thickness
+    // 3MF Color Format: #AARRGGBB (8 hex digits). Added FF for full opacity.
     const layers = [
-        { name: "White Base", color: "#FFFFFF", id: 4, data: state.pixelData.w, zStart: 0.0, zThick: 0.4, isBase: true },
-        { name: "Cyan",       color: "#00FFFF", id: 1, data: state.pixelData.c, zStart: 0.4, zThick: 0.6 },
-        { name: "Magenta",    color: "#FF00FF", id: 2, data: state.pixelData.m, zStart: 1.0, zThick: 0.6 },
-        { name: "Yellow",     color: "#FFFF00", id: 3, data: state.pixelData.y, zStart: 1.6, zThick: 0.6 },
-        { name: "White Top",  color: "#FFFFFF", id: 4, data: state.pixelData.w, zStart: 2.2, zThick: 1.0 } 
+        { name: "White Base", color: "#FFFFFFFF", id: 4, data: state.pixelData.w, zStart: 0.0, zThick: 0.4, isBase: true },
+        { name: "Cyan",       color: "#FF00FFFF", id: 1, data: state.pixelData.c, zStart: 0.4, zThick: 0.6 },
+        { name: "Magenta",    color: "#FFFF00FF", id: 2, data: state.pixelData.m, zStart: 1.0, zThick: 0.6 },
+        { name: "Yellow",     color: "#FFFFFF00", id: 3, data: state.pixelData.y, zStart: 1.6, zThick: 0.6 },
+        { name: "White Top",  color: "#FFFFFFFF", id: 4, data: state.pixelData.w, zStart: 2.2, zThick: 1.0 } 
     ];
 
-    // Build Material Resources (Color Defs)
     let resources = `<resources><basematerials id="100">`;
     layers.forEach((l, idx) => {
         resources += `<base name="${l.name}" displaycolor="${l.color}" />`;
@@ -409,19 +409,22 @@ async function download3MF() {
 
     let buildXML = `<build>`;
     let objId = 1;
-    let meshXML = "";
+    
+    // Use Arrays to build strings (prevents Max String Length error)
+    const meshParts = [];
 
     // Generate Objects
     for(let i=0; i<layers.length; i++) {
         const l = layers[i];
         // We link the object to the material using pid="100" and pindex="i"
-        meshXML += generateMeshString(objId, l.name, 100, i, l.data, scale, l.zStart, l.zThick, l.isBase);
+        meshParts.push(generateMeshString(objId, l.name, 100, i, l.data, scale, l.zStart, l.zThick, l.isBase));
         buildXML += `<item objectid="${objId}" />`;
         objId++;
     }
 
+    // Join all parts
     const finalXML = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel">` 
-                     + resources + meshXML + `</resources>` + buildXML + `</model>`;
+                     + resources + meshParts.join("") + `</resources>` + buildXML + `</model>`;
     
     zip.folder("3D").file("3dmodel.model", finalXML);
     const content = await zip.generateAsync({type:"blob"});
@@ -434,16 +437,19 @@ async function download3MF() {
 function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, zMax, isFlat) {
     const w = state.pixelData.width;
     const h = state.pixelData.height;
-    // QUALITY: Use calculated pixelStep (1 or 2)
     const skip = state.export.pixelStep; 
     
-    let vertices = "";
-    let triangles = "";
+    // Use Arrays for buffer construction (Performance & Memory safety)
+    const vArr = [];
+    const tArr = [];
     let vCount = 0;
     
     const gridW = Math.floor(w / skip);
     const gridH = Math.floor(h / skip);
     const vIDs = new Int32Array(gridW * gridH).fill(-1);
+
+    // Helper to safe fix
+    const f = (num) => isFinite(num) ? num.toFixed(2) : "0.00";
 
     for (let gy = 0; gy < gridH; gy++) {
         for (let gx = 0; gx < gridW; gx++) {
@@ -455,8 +461,9 @@ function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, z
                 const density = isFlat ? 1.0 : (valArray[idx] / 255);
                 const height = zMax * density; 
                 
-                vertices += `<vertex x="${(px * s).toFixed(2)}" y="${(py * s).toFixed(2)}" z="${zOffset.toFixed(2)}" />`;
-                vertices += `<vertex x="${(px * s).toFixed(2)}" y="${(py * s).toFixed(2)}" z="${(zOffset + height).toFixed(2)}" />`;
+                // Add Vertices (Bottom & Top)
+                vArr.push(`<vertex x="${f(px * s)}" y="${f(py * s)}" z="${f(zOffset)}" />`);
+                vArr.push(`<vertex x="${f(px * s)}" y="${f(py * s)}" z="${f(zOffset + height)}" />`);
                 
                 vIDs[gy * gridW + gx] = vCount;
                 vCount += 2;
@@ -472,16 +479,17 @@ function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, z
             const br = vIDs[(gy + 1) * gridW + (gx + 1)];
 
             if (tl !== -1 && tr !== -1 && bl !== -1 && br !== -1) {
-                triangles += `<triangle v1="${tl+1}" v2="${bl+1}" v3="${br+1}" />`;
-                triangles += `<triangle v1="${tl+1}" v2="${br+1}" v3="${tr+1}" />`;
-                triangles += `<triangle v1="${tl}" v2="${br}" v3="${bl}" />`;
-                triangles += `<triangle v1="${tl}" v2="${tr}" v3="${br}" />`;
+                // Top Surface
+                tArr.push(`<triangle v1="${tl+1}" v2="${bl+1}" v3="${br+1}" />`);
+                tArr.push(`<triangle v1="${tl+1}" v2="${br+1}" v3="${tr+1}" />`);
+                // Bottom Surface (Flat)
+                tArr.push(`<triangle v1="${tl}" v2="${br}" v3="${bl}" />`);
+                tArr.push(`<triangle v1="${tl}" v2="${tr}" v3="${br}" />`);
             }
         }
     }
 
-    // Add Name and Material properties to Object
-    return `<object id="${id}" name="${name}" pid="${matPid}" pindex="${matPindex}" type="model"><mesh><vertices>${vertices}</vertices><triangles>${triangles}</triangles></mesh></object>`;
+    return `<object id="${id}" name="${name}" pid="${matPid}" pindex="${matPindex}" type="model"><mesh><vertices>${vArr.join("")}</vertices><triangles>${tArr.join("")}</triangles></mesh></object>`;
 }
 
 init();
