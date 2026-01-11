@@ -1,8 +1,7 @@
 /**
- * CMYK DESIGNER ENGINE v3.0
- * - Colorized Previews for CMYK channels
- * - Real 3MF Mesh Generation (No more cubes!)
- * - Multi-part Object Support (C, M, Y, W layers)
+ * CMYK DESIGNER ENGINE v3.1
+ * - Fixed: Dimensions now scale based on Mask Width (not canvas width)
+ * - Fixed: "Sandwich" Layering (White -> C -> M -> Y -> White) for correct internal coloring
  */
 
 // --- CONFIGURATION ---
@@ -22,16 +21,14 @@ const state = {
     export: { 
         width: 100,      // Final physical width (mm)
         height: 100,     // Final physical height (mm)
-        minThick: 0.6,   // Base thickness (White layer floor)
-        maxThick: 3.2,   // Max thickness (Peak of mountains)
-        resolution: 0.25 // 0.1 = High Detail, 0.5 = Low Detail (Vertices per mm)
+        resolution: 0.25 // Step size (lower = higher res)
     },
     
     // Layer Objects
     photo: { img: null, x: 0, y: 0, w: 0, h: 0, rot: 0, loaded: false },
     mask: { img: null, x: 0, y: 0, w: 0, h: 0, rot: 0, loaded: false, aspect: 1, alphaCanvas: null },
 
-    // Generated Data (Stored as 0-255 arrays)
+    // Generated Data
     pixelData: null 
 };
 
@@ -72,7 +69,6 @@ function loadLayer(e, type) {
                 layer.x = (cvs.width - layer.w) / 2;
                 layer.y = (cvs.height - layer.h) / 2;
                 
-                // Default export width 100mm
                 state.export.width = 100;
                 state.export.height = 100 / layer.aspect;
                 updateInputsFromState();
@@ -137,11 +133,6 @@ function selectLayer(layer) {
     render();
 }
 
-function getMousePos(e) {
-    const rect = cvs.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-}
-
 function getHitHandle(layer, mx, my) {
     const cx = layer.x + layer.w/2;
     const cy = layer.y + layer.h/2;
@@ -171,7 +162,8 @@ function getHitHandle(layer, mx, my) {
 }
 
 cvs.addEventListener('mousedown', e => {
-    const m = getMousePos(e);
+    const rect = cvs.getBoundingClientRect();
+    const m = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const layer = state[state.activeLayer];
     if (!layer.loaded) return;
 
@@ -188,16 +180,15 @@ window.addEventListener('mouseup', () => state.isDragging = false);
 
 cvs.addEventListener('mousemove', e => {
     if (!state.isDragging) return;
-    const m = getMousePos(e);
+    const rect = cvs.getBoundingClientRect();
+    const m = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const layer = state[state.activeLayer];
     const start = state.dragStart;
     const init = state.initialLayer;
     
     if (state.dragAction === 'move') {
-        let newX = init.x + (m.x - start.x);
-        let newY = init.y + (m.y - start.y);
-        layer.x = newX;
-        layer.y = newY;
+        layer.x = init.x + (m.x - start.x);
+        layer.y = init.y + (m.y - start.y);
     } else if (state.dragAction === 'rotate') {
         const cx = layer.x + layer.w/2;
         const cy = layer.y + layer.h/2;
@@ -304,10 +295,9 @@ function drawLayer(layer, isMask) {
 function generateLayers() {
     if(!state.mask.loaded || !state.photo.loaded) { alert("Please upload both a Photo and a Mask (Shape) first."); return; }
     
-    // Enable download button
     const btn = document.getElementById('btnDownload');
     btn.disabled = false;
-    btn.innerText = "Processing..."; // Visual feedback
+    btn.innerText = "Processing..."; 
     btn.style.background = "#00d26a";
     btn.style.color = "#000";
 
@@ -315,141 +305,166 @@ function generateLayers() {
     const h = cvs.height;
     const data = ctx.getImageData(0,0,w,h).data;
 
-    // We MUST re-initialize pixelData here to match the current canvas size
-    // We will store it as a Flat Array for memory efficiency (Width, Height, Data[])
+    // Calculate Mask Bounding Box in Pixels
+    // We need this to determine the Active Area for correct physical scaling
+    let minX = w, maxX = 0;
+    
+    // We scan to find the actual width of the shape in pixels
+    // This allows us to map "120mm" to the shape width, not the canvas width
+    let validPixelCount = 0;
+
+    // Initialize Arrays
     state.pixelData = { 
-        width: w,
-        height: h,
-        c: new Uint8Array(w * h),
-        m: new Uint8Array(w * h),
-        y: new Uint8Array(w * h),
-        w: new Uint8Array(w * h),
-        mask: new Uint8Array(w * h) // Store mask validity (1 or 0)
+        width: w, height: h,
+        c: new Uint8Array(w * h), m: new Uint8Array(w * h), y: new Uint8Array(w * h), w: new Uint8Array(w * h),
+        mask: new Uint8Array(w * h),
+        maskBounds: { width: w } // Default fallback
     };
 
-    const chans = ['c','m','y','w', 'ref'];
+    // First Pass: Data Extraction & Bounds Check
+    for (let y=0; y<h; y++) {
+        for (let x=0; x<w; x++) {
+            const i = (y * w + x) * 4;
+            const p = y * w + x;
+            const a = data[i+3];
+
+            if (a > 10) {
+                state.pixelData.mask[p] = 1;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                validPixelCount++;
+                
+                const r = data[i]; const g = data[i+1]; const b = data[i+2];
+                // CMYK Subtractive Logic
+                state.pixelData.c[p] = 255 - r;
+                state.pixelData.m[p] = 255 - g;
+                state.pixelData.y[p] = 255 - b;
+                state.pixelData.w[p] = 255 - (r*0.299 + g*0.587 + b*0.114);
+            } else {
+                state.pixelData.mask[p] = 0;
+            }
+        }
+    }
+    
+    // Store the actual pixel width of the shape for scaling later
+    if (maxX > minX) {
+        state.pixelData.maskBounds.width = maxX - minX;
+    }
+
+    // Update Previews
     const ctxs = {};
-    chans.forEach(k => {
+    ['c','m','y','w','ref'].forEach(k => {
         const el = document.getElementById(k+'Canvas');
         el.width = w; el.height = h;
         ctxs[k] = el.getContext('2d');
     });
-
     ctxs['ref'].putImageData(ctx.getImageData(0,0,w,h), 0,0);
-    const buffers = {};
-    chans.forEach(k => buffers[k] = ctxs[k].createImageData(w,h));
-
-    for (let i=0, p=0; i<data.length; i+=4, p++) {
-        const r = data[i]; const g = data[i+1]; const b = data[i+2]; const a = data[i+3];
-        
-        if (a < 10) {
-            state.pixelData.mask[p] = 0; // Invalid/Transparent
-            continue; 
-        }
-        
-        state.pixelData.mask[p] = 1; // Valid
-
-        // Subtractive Logic
-        const cVal = 255 - r;
-        const mVal = 255 - g;
-        const yVal = 255 - b;
-        const wVal = 255 - (r*0.299 + g*0.587 + b*0.114);
-
-        // Store Raw Data
-        state.pixelData.c[p] = cVal;
-        state.pixelData.m[p] = mVal;
-        state.pixelData.y[p] = yVal;
-        state.pixelData.w[p] = wVal;
-
-        // Preview Visualization (Colorized)
-        setPxRGB(buffers['c'], i, 255 - cVal, 255, 255); 
-        setPxRGB(buffers['m'], i, 255, 255 - mVal, 255);
-        setPxRGB(buffers['y'], i, 255, 255, 255 - yVal);
-        setPxRGB(buffers['w'], i, wVal, wVal, wVal);
-    }
     
-    chans.forEach(k => { if(k!=='ref') ctxs[k].putImageData(buffers[k], 0,0); });
+    const buffers = {};
+    ['c','m','y','w'].forEach(k => buffers[k] = ctxs[k].createImageData(w,h));
+
+    for (let p=0; p<w*h; p++) {
+        if(state.pixelData.mask[p]===1) {
+            const i = p*4;
+            setPxRGB(buffers['c'], i, 255 - state.pixelData.c[p], 255, 255);
+            setPxRGB(buffers['m'], i, 255, 255 - state.pixelData.m[p], 255);
+            setPxRGB(buffers['y'], i, 255, 255, 255 - state.pixelData.y[p]);
+            const lum = state.pixelData.w[p];
+            setPxRGB(buffers['w'], i, lum, lum, lum);
+        }
+    }
+    ['c','m','y','w'].forEach(k => ctxs[k].putImageData(buffers[k], 0,0));
     
     btn.innerText = "2. Download 3MF";
 }
 
 function setPxRGB(imgData, i, r, g, b) {
-    imgData.data[i] = r; 
-    imgData.data[i+1] = g; 
-    imgData.data[i+2] = b; 
-    imgData.data[i+3] = 255;
+    imgData.data[i] = r; imgData.data[i+1] = g; imgData.data[i+2] = b; imgData.data[i+3] = 255;
 }
 
 
 // --- 3MF EXPORT LOGIC (REAL) ---
 async function download3MF() {
-    if (!JSZip) { alert("Library missing. Please reload."); return; }
-    if (!state.pixelData) { alert("Please click 'Generate Previews' first."); return; }
+    if (!JSZip || !state.pixelData) return;
 
     const zip = new JSZip();
-    
-    // 1. [Content_Types].xml
     zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
-
-    // 2. _rels/.rels
     zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
 
-    // 3. Generate The 4 Mesh Strings
-    // We do this by channel.
-    // Scale Factor: Canvas Pixels -> MM
-    const scaleX = state.export.width / state.pixelData.width;
-    const scaleY = state.export.height / state.pixelData.height;
+    // SCALING FIX:
+    // Scale = DesiredPhysicalWidth / ActivePixelWidth
+    // This ensures 120mm input = 120mm printed object, regardless of empty canvas space.
+    const activeWidth = state.pixelData.maskBounds.width || state.pixelData.width;
+    const scale = state.export.width / activeWidth;
     
-    // We will create one massive .model file with 4 object definitions
-    const modelHeader = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"><resources>`;
-    const modelFooter = `</resources><build><item objectid="1"/><item objectid="2"/><item objectid="3"/><item objectid="4"/></build></model>`;
+    // LAYER CONFIGURATION (Sandwich Method)
+    // Z-Values are cumulative to stack layers internally
+    const layers = [
+        // 1. White Base (0.0 - 0.4mm)
+        { id: 4, data: state.pixelData.w, zStart: 0.0, zThick: 0.4, isBase: true },
+        // 2. Cyan (0.4 - 1.0mm) - Variable thickness up to 0.6mm
+        { id: 1, data: state.pixelData.c, zStart: 0.4, zThick: 0.6 },
+        // 3. Magenta (1.0 - 1.6mm)
+        { id: 2, data: state.pixelData.m, zStart: 1.0, zThick: 0.6 },
+        // 4. Yellow (1.6 - 2.2mm)
+        { id: 3, data: state.pixelData.y, zStart: 1.6, zThick: 0.6 },
+        // 5. White Top (2.2 - 3.2mm) - Variable Detail Layer
+        { id: 4, data: state.pixelData.w, zStart: 2.2, zThick: 1.0 } 
+    ];
 
-    // Generate Meshes
-    // IDs: 1=Cyan, 2=Magenta, 3=Yellow, 4=White
-    const meshC = generateMeshString(1, state.pixelData.c, scaleX, scaleY, 2.4); // 2.4mm depth for color?
-    const meshM = generateMeshString(2, state.pixelData.m, scaleX, scaleY, 2.4);
-    const meshY = generateMeshString(3, state.pixelData.y, scaleX, scaleY, 2.4);
-    const meshW = generateMeshString(4, state.pixelData.w, scaleX, scaleY, 0.8); // 0.8mm depth for white base?
+    let modelXML = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"><resources>`;
+    let buildXML = `<build>`;
 
-    const finalXML = modelHeader + meshC + meshM + meshY + meshW + modelFooter;
+    // We generate a separate object for each layer
+    // Note: ID 4 (White) is used twice, but as separate meshes in the build? 
+    // Actually, 3MF objects need unique IDs.
+    
+    let objId = 1;
+    
+    // Generate Base (Solid Block)
+    modelXML += generateMeshString(objId, layers[0].data, scale, layers[0].zStart, layers[0].zThick, true);
+    buildXML += `<item objectid="${objId}" />`;
+    objId++; // 2 = Cyan
+    modelXML += generateMeshString(objId, layers[1].data, scale, layers[1].zStart, layers[1].zThick, false);
+    buildXML += `<item objectid="${objId}" />`;
+    objId++; // 3 = Magenta
+    modelXML += generateMeshString(objId, layers[2].data, scale, layers[2].zStart, layers[2].zThick, false);
+    buildXML += `<item objectid="${objId}" />`;
+    objId++; // 4 = Yellow
+    modelXML += generateMeshString(objId, layers[3].data, scale, layers[3].zStart, layers[3].zThick, false);
+    buildXML += `<item objectid="${objId}" />`;
+    objId++; // 5 = Top White
+    modelXML += generateMeshString(objId, layers[4].data, scale, layers[4].zStart, layers[4].zThick, false);
+    buildXML += `<item objectid="${objId}" />`;
+
+    const finalXML = modelXML + `</resources>` + buildXML + `</build></model>`;
     
     zip.folder("3D").file("3dmodel.model", finalXML);
-
     const content = await zip.generateAsync({type:"blob"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(content);
-    a.download = "lithophane.3mf";
+    a.download = "lithophane_sandwich.3mf";
     a.click();
 }
 
 /**
- * GENERATES A SINGLE MESH STRING (Vertices + Triangles)
- * @param {number} id - Object ID (1-4)
- * @param {Uint8Array} valArray - The grayscale data (0-255)
- * @param {number} sx - Scale X
- * @param {number} sy - Scale Y
- * @param {number} zMax - Max thickness for this specific layer
+ * GENERATES A MESH
+ * @param {number} id - Object ID
+ * @param {Uint8Array} valArray - 0-255 data
+ * @param {number} s - Scale
+ * @param {number} zOffset - Bottom Z height
+ * @param {number} zMax - Max thickness added to offset
+ * @param {boolean} isFlat - If true, ignores data and makes flat block (for base)
  */
-function generateMeshString(id, valArray, sx, sy, zMax) {
+function generateMeshString(id, valArray, s, zOffset, zMax, isFlat) {
     const w = state.pixelData.width;
     const h = state.pixelData.height;
-    const skip = Math.max(1, Math.floor(1 / (state.export.resolution || 0.2))); 
-    
-    // We need to map grid indices to Vertex IDs to generate triangles
-    // Optimization: Only generate vertices for 'valid' pixels?
-    // For simplicity in this version, we grid scan.
+    const skip = Math.max(1, Math.floor(1 / (state.export.resolution || 0.25))); 
     
     let vertices = "";
     let triangles = "";
     let vCount = 0;
     
-    // Vertex Map: map[y][x] = vertexID (so we can link triangles)
-    // We use a sparse array or logic to handle skipping
-    // Since we need to join them, we probably need a dedicated grid.
-    // Let's use a 1D array to store Vertex IDs. -1 means no vertex there.
-    // NOTE: Memory intensive for large images.
-    
-    // Reduced Grid Dimensions
     const gridW = Math.floor(w / skip);
     const gridH = Math.floor(h / skip);
     const vIDs = new Int32Array(gridW * gridH).fill(-1);
@@ -462,19 +477,15 @@ function generateMeshString(id, valArray, sx, sy, zMax) {
             const idx = py * w + px;
 
             if (state.pixelData.mask[idx] === 1) {
-                const zVal = (valArray[idx] / 255) * zMax; 
-                // We generate TWO vertices per pixel? No, a lithophane is usually a top surface.
-                // But for 3D printing it needs to be "watertight" (closed volume).
-                // "Pane" method: Top surface + flat back.
-                // This means VCount * 2. 
-                // Let's stick to a simple surface for now. Most slicers handle "open" sheets if settings allow,
-                // BUT a valid 3MF object usually needs volume. 
-                // Let's generate a FLAT BACK at Z=0 and a SCULPTED FRONT at Z=zVal.
+                // For color layers: Thickness depends on pixel value (0-255)
+                // If isFlat (Base): Thickness is always full zMax
+                const density = isFlat ? 1.0 : (valArray[idx] / 255);
+                const height = zMax * density; 
                 
-                // Back Vertex (Z=0) -> ID: vCount
-                vertices += `<vertex x="${(px * sx).toFixed(2)}" y="${(py * sy).toFixed(2)}" z="0" />`;
-                // Front Vertex (Z=height) -> ID: vCount + 1
-                vertices += `<vertex x="${(px * sx).toFixed(2)}" y="${(py * sy).toFixed(2)}" z="${zVal.toFixed(2)}" />`;
+                // Bottom Vertex (Z = zOffset)
+                vertices += `<vertex x="${(px * s).toFixed(2)}" y="${(py * s).toFixed(2)}" z="${zOffset.toFixed(2)}" />`;
+                // Top Vertex (Z = zOffset + height)
+                vertices += `<vertex x="${(px * s).toFixed(2)}" y="${(py * s).toFixed(2)}" z="${(zOffset + height).toFixed(2)}" />`;
                 
                 vIDs[gy * gridW + gx] = vCount;
                 vCount += 2;
@@ -483,10 +494,6 @@ function generateMeshString(id, valArray, sx, sy, zMax) {
     }
 
     // 2. Generate Triangles
-    // We look at 2x2 quads in the grid.
-    // TL--TR
-    // |   |
-    // BL--BR
     for (let gy = 0; gy < gridH - 1; gy++) {
         for (let gx = 0; gx < gridW - 1; gx++) {
             const tl = vIDs[gy * gridW + gx];
@@ -494,29 +501,13 @@ function generateMeshString(id, valArray, sx, sy, zMax) {
             const bl = vIDs[(gy + 1) * gridW + gx];
             const br = vIDs[(gy + 1) * gridW + (gx + 1)];
 
-            // If all 4 corners exist, make a solid block
             if (tl !== -1 && tr !== -1 && bl !== -1 && br !== -1) {
-                // Vertex Indices:
-                // tl (back), tl+1 (front)
-                
-                // FRONT FACE (Clockwise? CCW?)
-                // tl+1, bl+1, br+1
-                // tl+1, br+1, tr+1
+                // Top Surface
                 triangles += `<triangle v1="${tl+1}" v2="${bl+1}" v3="${br+1}" />`;
                 triangles += `<triangle v1="${tl+1}" v2="${br+1}" v3="${tr+1}" />`;
-
-                // BACK FACE (Inverted winding)
-                // tl, br, bl
-                // tl, tr, br
+                // Bottom Surface
                 triangles += `<triangle v1="${tl}" v2="${br}" v3="${bl}" />`;
                 triangles += `<triangle v1="${tl}" v2="${tr}" v3="${br}" />`;
-
-                // SIDE WALLS?
-                // Real solids need side walls between the front/back vertices.
-                // This is complex for arbitrary shapes.
-                // For a "Vibe Coding" prototype, just Front+Back often works in Bambu if "Close Holes" is on,
-                // but strictly we should stitch edges. 
-                // Let's leave walls out for V3.0 performance and see if Bambu accepts the "sandwich".
             }
         }
     }
