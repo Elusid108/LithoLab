@@ -29,6 +29,29 @@ body {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    position: relative; /* For settings button positioning */
+}
+
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.settings-btn {
+    background: transparent;
+    border: 1px solid #444;
+    color: #aaa;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+.settings-btn:hover {
+    border-color: #fff;
+    color: #fff;
 }
 
 .control-section {
@@ -61,11 +84,32 @@ h3 {
     border-radius: 8px;
     border: 1px solid #333;
     transition: border-color 0.2s;
+    position: relative; /* For clear button */
 }
 
 .upload-card:hover {
     border-color: #555;
 }
+
+.clear-btn-x {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: #ff4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+.clear-btn-x:hover { background: #cc0000; }
 
 .upload-label {
     display: flex;
@@ -83,12 +127,85 @@ h3 {
     display: inline-block;
     border-radius: 50%;
 }
+/* Gradient Icons */
+.upload-icon.color {
+    background: linear-gradient(135deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3);
+}
+.upload-icon.bw {
+    background: linear-gradient(90deg, #000 50%, #fff 50%);
+    border: 1px solid #555;
+}
 
 input[type="file"] { 
     width: 100%; 
     font-size: 11px; 
     color: #aaa; 
 }
+
+/* AI Buttons */
+.ai-feature {
+    display: none; /* Hidden by default until API key present */
+}
+.ai-btn-row {
+    display: flex;
+    gap: 5px;
+    margin-top: 10px;
+}
+.ai-btn {
+    background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+    border: none;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 1;
+    transition: transform 0.1s;
+}
+.ai-btn:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 10px rgba(106, 17, 203, 0.4);
+}
+.dl-btn {
+    background: #444;
+    border: none;
+    color: #fff;
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: none; /* Hidden unless content is AI generated */
+}
+.dl-btn:hover { background: #555; }
+
+.ai-btn-small {
+    background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+    border: none;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    margin-left: auto;
+}
+
+/* History Strip */
+.history-strip {
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    margin-top: 10px;
+    padding-bottom: 5px;
+}
+.history-thumb {
+    width: 40px; height: 40px;
+    border-radius: 4px;
+    border: 1px solid #444;
+    cursor: pointer;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.history-thumb:hover { border-color: #fff; }
 
 /* Layer Selector */
 .layer-select { 
@@ -116,6 +233,13 @@ input[type="file"] {
     border-color: #00d26a; 
     background: rgba(0, 210, 106, 0.1); 
     color: #00d26a; 
+}
+.layer-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #222;
+    border-color: #333;
+    color: #555;
 }
 
 .instructions {
@@ -172,17 +296,50 @@ input[type="file"] {
     margin-top: 14px;
 }
 
-/* Canvas Area */
+/* Settings Box */
+.settings-box {
+    background: #262626;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #aaa;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #333;
+    padding-bottom: 4px;
+}
+.setting-row:last-child { margin-bottom: 0; border: none; }
+.setting-val { color: #fff; font-weight: bold; }
+
+.input-group { margin-bottom: 15px; position: relative; }
+.input-group label { display: block; font-size: 11px; color: #888; margin-bottom: 5px; }
+.text-input { 
+    width: 100%; padding: 10px; background: #2d2d2d; border: 1px solid #444; 
+    color: white; border-radius: 4px; box-sizing: border-box;
+}
+
+/* Main Layout Right Side */
+.right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Canvas Area - Aligned Top */
 .canvas-area { 
     position: relative; 
     display: flex; 
     justify-content: center; 
-    align-items: center; 
+    align-items: flex-start; /* Align Top */
     background: #1e1e1e; 
     border-radius: 12px; 
     padding: 20px; 
     overflow: hidden; 
-    min-height: 600px; 
+    min-height: 500px; 
     box-shadow: inset 0 0 40px rgba(0,0,0,0.5);
 }
 canvas#editorCanvas { 
@@ -191,6 +348,7 @@ canvas#editorCanvas {
     background-color: #262626; 
     box-shadow: 0 20px 50px rgba(0,0,0,0.5); 
     cursor: default; 
+    margin-top: 20px; 
 }
 
 button.process-btn { 
@@ -222,16 +380,37 @@ button:disabled {
 
 /* Output Preview */
 .output-section { 
-    grid-column: 1 / -1; 
-    margin-top: 20px; 
     background: #1e1e1e; 
     padding: 20px; 
     border-radius: 12px; 
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 }
+
+.composite-preview-container {
+    width: 100%;
+    margin-bottom: 20px;
+    background: #262626;
+    padding: 15px;
+    border-radius: 8px;
+    box-sizing: border-box;
+    text-align: center;
+}
+.composite-preview-container h4 {
+    margin: 0 0 10px 0;
+    color: #fff;
+    font-size: 14px;
+}
+#refCanvas {
+    max-height: 400px;
+    max-width: 100%;
+    border: 1px solid #444;
+    background-image: linear-gradient(45deg, #333 25%, transparent 25%), linear-gradient(-45deg, #333 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333 75%), linear-gradient(-45deg, transparent 75%, #333 75%);
+    background-size: 20px 20px;
+}
+
 .preview-grid { 
     display: grid; 
-    grid-template-columns: repeat(5, 1fr); 
+    grid-template-columns: repeat(4, 1fr);
     gap: 15px; 
     margin-top: 15px;
 }
@@ -254,8 +433,8 @@ button:disabled {
     margin: 0 0 8px 0;
 }
 
-/* Progress Modal */
-#progressOverlay {
+/* Modals */
+#progressOverlay, #aiPromptOverlay, #settingsOverlay {
     display: none;
     position: fixed;
     top: 0; left: 0; width: 100%; height: 100%;
@@ -265,7 +444,7 @@ button:disabled {
     align-items: center;
     flex-direction: column;
 }
-.progress-box {
+.progress-box, .prompt-box {
     width: 400px;
     background: #2d2d2d;
     padding: 30px;
@@ -287,13 +466,17 @@ button:disabled {
     width: 0%;
     transition: width 0.1s linear;
 }
-#progressText {
-    color: #fff;
-    font-weight: 600;
-    margin-bottom: 5px;
+#progressText { color: #fff; font-weight: 600; margin-bottom: 5px; }
+#progressSub { color: #888; font-size: 12px; }
+textarea {
+    width: 100%; height: 80px; background: #1e1e1e; border: 1px solid #444;
+    color: #eee; padding: 10px; border-radius: 4px; box-sizing: border-box;
+    margin-bottom: 15px; font-family: sans-serif;
 }
-#progressSub {
-    color: #888;
-    font-size: 12px;
-}
+.modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
+.cancel-btn { background: #444; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+.save-btn { background: #00d26a; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold;}
+
+.settings-link { color: #00d26a; text-decoration: none; font-size: 12px; display: block; margin-top: 10px; }
+.settings-link:hover { text-decoration: underline; }
 /* --- STYLES END --- */

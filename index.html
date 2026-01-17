@@ -22,28 +22,76 @@
     </div>
 </div>
 
+<!-- AI Prompt Overlay -->
+<div id="aiPromptOverlay">
+    <div class="prompt-box">
+        <h3 id="aiModalTitle">✨ Generate Image</h3>
+        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px;" id="aiModalDesc">Describe the image you want to create.</p>
+        <textarea id="aiPromptInput" placeholder="E.g., A cute cat..."></textarea>
+        <input type="hidden" id="aiMode" value="photo">
+        <div class="modal-btns">
+            <button class="cancel-btn" onclick="document.getElementById('aiPromptOverlay').style.display='none'">Cancel</button>
+            <button class="ai-btn" onclick="confirmGenerateImage()">Generate ✨</button>
+        </div>
+    </div>
+</div>
+
+<!-- Settings Overlay -->
+<div id="settingsOverlay">
+    <div class="prompt-box">
+        <h3>⚙️ Settings</h3>
+        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px;">Configure your API Key to enable AI features.</p>
+        <div class="input-group" style="text-align: left;">
+            <label>Google AI Studio API Key</label>
+            <input type="password" id="apiKeyInput" class="text-input" placeholder="Paste your API Key here...">
+        </div>
+        <a href="https://aistudio.google.com/" target="_blank" class="settings-link">Get a free API Key at Google AI Studio &rarr;</a>
+        <div class="modal-btns" style="margin-top: 20px;">
+            <button class="cancel-btn" onclick="closeSettings()">Cancel</button>
+            <button class="save-btn" onclick="saveSettings()">Save & Reload</button>
+        </div>
+    </div>
+</div>
+
 <div class="app-container">
     <!-- SIDEBAR -->
     <div class="sidebar">
         
-        <!-- Section 1: Uploads -->
-        <div class="control-section">
+        <div class="header-row">
             <h3>1. Upload Assets</h3>
+            <button class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
+        </div>
+
+        <div class="control-section">
             <div class="upload-grid">
                 <div class="upload-card">
+                    <button class="clear-btn-x" onclick="clearLayer('photo')" title="Clear Photo">×</button>
                     <div class="upload-label">
-                        <span class="upload-icon" style="background:#00d26a;"></span>
+                        <!-- Rainbow Icon for Photo -->
+                        <span class="upload-icon color"></span>
                         Photo (Color)
                     </div>
                     <input type="file" id="photoInput" accept="image/*">
+                    <div class="ai-feature ai-btn-row">
+                        <button class="ai-btn" onclick="openAiPrompt('photo')">✨ Generate with AI</button>
+                        <button id="dl-photo" class="dl-btn" onclick="downloadSource('photo')" title="Download Generated Image">⬇️</button>
+                    </div>
+                    <div id="photoHistory" class="history-strip ai-feature"></div>
                 </div>
                 
                 <div class="upload-card">
+                    <button class="clear-btn-x" onclick="clearLayer('mask')" title="Clear Mask">×</button>
                     <div class="upload-label">
-                        <span class="upload-icon" style="background:#fff;"></span>
+                        <!-- Half BW Icon for Mask -->
+                        <span class="upload-icon bw"></span>
                         Mask (Optional)
                     </div>
                     <input type="file" id="maskInput" accept="image/*">
+                    <div class="ai-feature ai-btn-row">
+                        <button class="ai-btn" onclick="openAiPrompt('mask')">✨ Generate Mask AI</button>
+                        <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
+                    </div>
+                    <div id="maskHistory" class="history-strip ai-feature"></div>
                 </div>
             </div>
         </div>
@@ -52,8 +100,8 @@
         <div class="control-section">
             <h3>2. Edit & Arrange</h3>
             <div class="layer-select">
-                <div class="layer-btn active" id="btn-mask" onclick="selectLayer('mask')">Edit Mask</div>
-                <div class="layer-btn" id="btn-photo" onclick="selectLayer('photo')">Edit Photo</div>
+                <div class="layer-btn disabled" id="btn-mask" onclick="selectLayer('mask')">Edit Mask</div>
+                <div class="layer-btn active" id="btn-photo" onclick="selectLayer('photo')">Edit Photo</div>
             </div>
             <div class="instructions">
                 <strong>Controls:</strong><br>
@@ -63,9 +111,33 @@
             </div>
         </div>
 
-        <!-- Section 3: Dimensions -->
+        <button class="process-btn" style="margin-bottom: 20px;" onclick="generateLayers()">GENERATE PREVIEWS</button>
+
+        <!-- Section 3: Settings -->
         <div class="control-section">
-            <h3>3. Final Dimensions (Export Size)</h3>
+            <h3>3. Lithophane Settings</h3>
+            
+            <div class="input-group">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <label style="margin:0;">Lithophane Name</label>
+                    <button class="ai-feature ai-btn-small" onclick="autoNameImage()">✨ Auto Name</button>
+                </div>
+                <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name...">
+            </div>
+
+            <div class="input-group">
+                <label>White Border Width (mm)</label>
+                <input type="range" id="borderInput" min="0" max="10" step="0.5" value="3" oninput="updateBorderDisplay(this.value)">
+                <div style="text-align:right; font-size:11px; color:#888;" id="borderVal">3mm</div>
+            </div>
+
+            <div class="settings-box">
+                <div class="setting-row"><span>First Layer (White)</span> <span class="setting-val">0.2mm</span></div>
+                <div class="setting-row"><span>Layer Height</span> <span class="setting-val">0.1mm</span></div>
+                <div class="setting-row"><span>Min Thickness</span> <span class="setting-val">0.8mm</span></div>
+                <div class="setting-row"><span>Max Thickness</span> <span class="setting-val">2.7mm</span></div>
+            </div>
+
             <div class="dim-row">
                 <div class="dim-group">
                     <span class="dim-label">Width</span>
@@ -85,24 +157,31 @@
             </div>
         </div>
 
-        <button class="process-btn" onclick="generateLayers()">1. Generate Previews</button>
-        <button id="btnDownload" class="process-btn" style="background:#333; color:#888; margin-top:10px;" onclick="download3MF()" disabled>2. Download 3MF</button>
+        <button id="btnDownload" class="process-btn" style="background:#333; color:#888; margin-top:10px;" onclick="exportTo3MF()" disabled>Download 3MF</button>
     </div>
 
-    <!-- MAIN CANVAS -->
-    <div class="canvas-area">
-        <canvas id="editorCanvas" width="800" height="600"></canvas>
-    </div>
+    <!-- RIGHT PANEL (Canvas + Output) -->
+    <div class="right-panel">
+        <!-- MAIN CANVAS -->
+        <div class="canvas-area">
+            <canvas id="editorCanvas" width="800" height="600"></canvas>
+        </div>
 
-    <!-- OUTPUTS -->
-    <div class="output-section">
-        <h3 style="margin-top:0; color:#fff;">Generated Layers Preview</h3>
-        <div class="preview-grid">
-            <div class="channel-card"><h4>Composite Preview</h4><canvas id="refCanvas"></canvas></div>
-            <div class="channel-card"><h4>Cyan (Thickness)</h4><canvas id="cCanvas"></canvas></div>
-            <div class="channel-card"><h4>Magenta (Thickness)</h4><canvas id="mCanvas"></canvas></div>
-            <div class="channel-card"><h4>Yellow (Thickness)</h4><canvas id="yCanvas"></canvas></div>
-            <div class="channel-card"><h4>White (Base)</h4><canvas id="wCanvas"></canvas></div>
+        <!-- OUTPUTS -->
+        <div class="output-section">
+            
+            <!-- Large Composite Preview -->
+            <div class="composite-preview-container">
+                <h4>Composite Preview (With Border)</h4>
+                <canvas id="refCanvas"></canvas>
+            </div>
+
+            <div class="preview-grid">
+                <div class="channel-card"><h4>Cyan (Thickness)</h4><canvas id="cCanvas"></canvas></div>
+                <div class="channel-card"><h4>Magenta (Thickness)</h4><canvas id="mCanvas"></canvas></div>
+                <div class="channel-card"><h4>Yellow (Thickness)</h4><canvas id="yCanvas"></canvas></div>
+                <div class="channel-card"><h4>White (Base+Top)</h4><canvas id="wCanvas"></canvas></div>
+            </div>
         </div>
     </div>
 </div>
