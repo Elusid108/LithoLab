@@ -1,8 +1,9 @@
 /**
- * CMYK DESIGNER ENGINE v3.3 (Stability Fixes)
- * - Fixed: switched to Array.join() for large mesh generation to prevent memory crashes.
- * - Fixed: Added Number checks to prevent NaN/Infinity in XML (Common cause of "No Geometry" error).
- * - Fixed: Updated Color Hex to 8-digit (#FFRRGGBB) for strict 3MF compliance.
+ * CMYK DESIGNER ENGINE v3.4
+ * - Optional Mask
+ * - Async 3MF Generation with Progress Bar
+ * - Fixed: _rels/.rels Leading Slash removed (Fixes Bambu "No Geometry" error)
+ * - Fixed: Dynamic Resolution calculation to prevent massive files
  */
 
 // --- CONFIGURATION ---
@@ -22,7 +23,7 @@ const state = {
     export: { 
         width: 100,      
         height: 100,     
-        pixelStep: 1     // 1 = Every pixel (Max Quality), 2 = Every 2nd pixel (Good balance)
+        pixelStep: 1     
     },
     
     // Layer Objects
@@ -79,6 +80,17 @@ function loadLayer(e, type) {
                 layer.h = cvs.width / layer.aspect;
                 layer.x = 0;
                 layer.y = (cvs.height - layer.h) / 2;
+                
+                if (!state.mask.loaded) {
+                    state.mask.aspect = layer.aspect;
+                    state.mask.w = layer.w * 0.8;
+                    state.mask.h = layer.h * 0.8;
+                    state.mask.x = (cvs.width - state.mask.w) / 2;
+                    state.mask.y = (cvs.height - state.mask.h) / 2;
+                    state.export.width = 100;
+                    state.export.height = 100 / layer.aspect;
+                    updateInputsFromState();
+                }
             }
             render();
         };
@@ -165,8 +177,10 @@ function getHitHandle(layer, mx, my) {
 cvs.addEventListener('mousedown', e => {
     const rect = cvs.getBoundingClientRect();
     const m = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const layer = state[state.activeLayer];
-    if (!layer.loaded) return;
+    
+    // Always prioritize Mask interaction if active, or check Photo
+    let layer = state[state.activeLayer];
+    if (state.activeLayer === 'photo' && !state.photo.loaded) return;
 
     const hit = getHitHandle(layer, m.x, m.y);
     if (hit) {
@@ -220,18 +234,19 @@ function updateInputsFromState() {
 }
 
 function updateDims(changed) {
-    if (!state.mask.loaded) return;
     const isInch = state.unit === 'in';
     let valW = parseFloat(document.getElementById('inpWidth').value);
     let valH = parseFloat(document.getElementById('inpHeight').value);
     if (isInch) { valW *= 25.4; valH *= 25.4; }
 
+    const aspect = state.mask.w ? (state.mask.w / state.mask.h) : 1;
+
     if (changed === 'w') {
         state.export.width = valW;
-        state.export.height = valW / state.mask.aspect;
+        state.export.height = valW / aspect;
     } else {
         state.export.height = valH;
-        state.export.width = valH * state.mask.aspect;
+        state.export.width = valH * aspect;
     }
     updateInputsFromState();
 }
@@ -246,20 +261,28 @@ function render() {
     ctx.clearRect(0,0,cvs.width, cvs.height);
     if (state.photo.loaded) drawLayer(state.photo, false);
 
+    ctx.save();
+    setTransform(state.mask);
+    
     if (state.mask.loaded) {
         ctx.globalCompositeOperation = 'destination-in';
-        drawLayer(state.mask, true);
+        const imgToDraw = state.mask.alphaCanvas;
+        ctx.drawImage(imgToDraw, -state.mask.w/2, -state.mask.h/2, state.mask.w, state.mask.h);
         ctx.globalCompositeOperation = 'source-over';
-        ctx.save();
-        setTransform(state.mask);
-        ctx.strokeStyle = "rgba(255,255,255,0.3)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(-state.mask.w/2, -state.mask.h/2, state.mask.w, state.mask.h);
-        ctx.restore();
+    } else {
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.fillStyle = '#000';
+        ctx.fillRect(-state.mask.w/2, -state.mask.h/2, state.mask.w, state.mask.h);
+        ctx.globalCompositeOperation = 'source-over';
     }
+    
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-state.mask.w/2, -state.mask.h/2, state.mask.w, state.mask.h);
+    ctx.restore();
 
     const active = state[state.activeLayer];
-    if (active.loaded) {
+    if (active && (active.loaded || state.activeLayer === 'mask')) {
         ctx.save();
         setTransform(active);
         ctx.strokeStyle = "#00d26a";
@@ -288,22 +311,25 @@ function drawLayer(layer, isMask) {
     ctx.save();
     setTransform(layer);
     const imgToDraw = (isMask && layer.alphaCanvas) ? layer.alphaCanvas : layer.img;
-    ctx.drawImage(imgToDraw, -layer.w/2, -layer.h/2, layer.w, layer.h);
+    if(imgToDraw) ctx.drawImage(imgToDraw, -layer.w/2, -layer.h/2, layer.w, layer.h);
     ctx.restore();
 }
 
-// --- GENERATION (CMYK SPLIT & DATA CAPTURE) ---
+// --- GENERATION ---
 function generateLayers() {
-    if(!state.mask.loaded || !state.photo.loaded) { alert("Please upload both a Photo and a Mask (Shape) first."); return; }
+    if(!state.photo.loaded) { alert("Please upload a Photo first."); return; }
     
     const btn = document.getElementById('btnDownload');
     btn.disabled = false;
-    btn.innerText = "Processing..."; 
+    btn.innerText = "2. Download 3MF";
     btn.style.background = "#00d26a";
     btn.style.color = "#000";
 
+    // Auto-Resolution Logic: Target approx 250k-500k vertices per layer to avoid crash
+    // 1000x1000 = 1MP. 
     const totalPixels = cvs.width * cvs.height;
-    state.export.pixelStep = (totalPixels > 2000000) ? 2 : 1; 
+    // Step 1 if < 0.5MP, Step 2 if < 2MP, Step 3 if larger
+    state.export.pixelStep = Math.max(1, Math.ceil(Math.sqrt(totalPixels / 500000)));
 
     const w = cvs.width;
     const h = cvs.height;
@@ -318,7 +344,6 @@ function generateLayers() {
         maskBounds: { width: w } 
     };
 
-    // Data Extraction
     for (let y=0; y<h; y++) {
         for (let x=0; x<w; x++) {
             const i = (y * w + x) * 4;
@@ -345,7 +370,6 @@ function generateLayers() {
         state.pixelData.maskBounds.width = maxX - minX;
     }
 
-    // Update Previews
     const ctxs = {};
     ['c','m','y','w','ref'].forEach(k => {
         const el = document.getElementById(k+'Canvas');
@@ -368,8 +392,6 @@ function generateLayers() {
         }
     }
     ['c','m','y','w'].forEach(k => ctxs[k].putImageData(buffers[k], 0,0));
-    
-    btn.innerText = "2. Download 3MF";
 }
 
 function setPxRGB(imgData, i, r, g, b) {
@@ -377,81 +399,100 @@ function setPxRGB(imgData, i, r, g, b) {
 }
 
 
-// --- 3MF EXPORT LOGIC (REAL) ---
+// --- ASYNC 3MF EXPORT LOGIC ---
+const ui = {
+    overlay: document.getElementById('progressOverlay'),
+    bar: document.getElementById('progressBar'),
+    text: document.getElementById('progressText'),
+    sub: document.getElementById('progressSub'),
+    update: (pct, msg, sub) => {
+        ui.bar.style.width = pct + '%';
+        if(msg) ui.text.innerText = msg;
+        if(sub) ui.sub.innerText = sub;
+    },
+    show: () => ui.overlay.style.display = 'flex',
+    hide: () => ui.overlay.style.display = 'none'
+};
+
+const yieldToUI = () => new Promise(r => setTimeout(r, 0));
+
 async function download3MF() {
     if (!JSZip || !state.pixelData) return;
 
+    ui.show();
+    ui.update(0, "Initializing...");
+    await yieldToUI();
+
     const zip = new JSZip();
     zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
-    zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
+    // FIX: Removed leading slash in Target
+    zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
 
     const activeWidth = state.pixelData.maskBounds.width || state.pixelData.width;
-    let scale = state.export.width / activeWidth;
+    const scale = state.export.width / activeWidth;
     
-    // SAFETY: Prevent Infinite scale if something went wrong
-    if (!isFinite(scale) || scale === 0) scale = 1;
-
-    // LAYER CONFIGURATION
-    // 3MF Color Format: #AARRGGBB (8 hex digits). Added FF for full opacity.
     const layers = [
-        { name: "White Base", color: "#FFFFFFFF", id: 4, data: state.pixelData.w, zStart: 0.0, zThick: 0.4, isBase: true },
-        { name: "Cyan",       color: "#FF00FFFF", id: 1, data: state.pixelData.c, zStart: 0.4, zThick: 0.6 },
-        { name: "Magenta",    color: "#FFFF00FF", id: 2, data: state.pixelData.m, zStart: 1.0, zThick: 0.6 },
-        { name: "Yellow",     color: "#FFFFFF00", id: 3, data: state.pixelData.y, zStart: 1.6, zThick: 0.6 },
-        { name: "White Top",  color: "#FFFFFFFF", id: 4, data: state.pixelData.w, zStart: 2.2, zThick: 1.0 } 
+        { name: "White Base", color: "#FFFFFF", id: 4, data: state.pixelData.w, zStart: 0.0, zThick: 0.6, isBase: true },
+        { name: "Cyan",       color: "#00FFFF", id: 1, data: state.pixelData.c, zStart: 0.6, zThick: 0.6 },
+        { name: "Magenta",    color: "#FF00FF", id: 2, data: state.pixelData.m, zStart: 1.2, zThick: 0.6 },
+        { name: "Yellow",     color: "#FFFF00", id: 3, data: state.pixelData.y, zStart: 1.8, zThick: 0.6 },
+        { name: "White Top",  color: "#FFFFFF", id: 4, data: state.pixelData.w, zStart: 2.4, zThick: 0.8 } 
     ];
 
     let resources = `<resources><basematerials id="100">`;
-    layers.forEach((l, idx) => {
-        resources += `<base name="${l.name}" displaycolor="${l.color}" />`;
-    });
+    layers.forEach((l) => resources += `<base name="${l.name}" displaycolor="${l.color}" />`);
     resources += `</basematerials>`;
 
     let buildXML = `<build>`;
     let objId = 1;
-    
-    // Use Arrays to build strings (prevents Max String Length error)
-    const meshParts = [];
+    let meshXML = "";
 
-    // Generate Objects
     for(let i=0; i<layers.length; i++) {
         const l = layers[i];
-        // We link the object to the material using pid="100" and pindex="i"
-        meshParts.push(generateMeshString(objId, l.name, 100, i, l.data, scale, l.zStart, l.zThick, l.isBase));
+        ui.update((i / layers.length) * 80, `Generating Mesh: ${l.name}`, `Layer ${i+1} of ${layers.length}`);
+        await yieldToUI();
+
+        const meshStr = await generateMeshAsync(objId, l.name, 100, i, l.data, scale, l.zStart, l.zThick, l.isBase);
+        meshXML += meshStr;
         buildXML += `<item objectid="${objId}" />`;
         objId++;
     }
 
-    // Join all parts
     const finalXML = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel">` 
-                     + resources + meshParts.join("") + `</resources>` + buildXML + `</model>`;
+                     + resources + meshXML + `</resources>` + buildXML + `</model>`;
     
+    ui.update(90, "Compressing File...");
+    await yieldToUI();
+
     zip.folder("3D").file("3dmodel.model", finalXML);
-    const content = await zip.generateAsync({type:"blob"});
+    const content = await zip.generateAsync({type:"blob"}, (meta) => {
+        ui.update(90 + (meta.percent * 0.1), "Zipping...");
+    });
+    
     const a = document.createElement("a");
     a.href = URL.createObjectURL(content);
     a.download = "lithophane_cmyk.3mf";
     a.click();
+
+    ui.hide();
 }
 
-function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, zMax, isFlat) {
+async function generateMeshAsync(id, name, matPid, matPindex, valArray, s, zOffset, zMax, isFlat) {
     const w = state.pixelData.width;
     const h = state.pixelData.height;
     const skip = state.export.pixelStep; 
     
-    // Use Arrays for buffer construction (Performance & Memory safety)
-    const vArr = [];
-    const tArr = [];
+    const vertices = [];
+    const triangles = [];
     let vCount = 0;
     
     const gridW = Math.floor(w / skip);
     const gridH = Math.floor(h / skip);
     const vIDs = new Int32Array(gridW * gridH).fill(-1);
 
-    // Helper to safe fix
-    const f = (num) => isFinite(num) ? num.toFixed(2) : "0.00";
-
     for (let gy = 0; gy < gridH; gy++) {
+        if (gy % 50 === 0) await yieldToUI(); 
+
         for (let gx = 0; gx < gridW; gx++) {
             const px = gx * skip;
             const py = gy * skip;
@@ -461,9 +502,8 @@ function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, z
                 const density = isFlat ? 1.0 : (valArray[idx] / 255);
                 const height = zMax * density; 
                 
-                // Add Vertices (Bottom & Top)
-                vArr.push(`<vertex x="${f(px * s)}" y="${f(py * s)}" z="${f(zOffset)}" />`);
-                vArr.push(`<vertex x="${f(px * s)}" y="${f(py * s)}" z="${f(zOffset + height)}" />`);
+                vertices.push(`<vertex x="${(px * s).toFixed(3)}" y="${(py * s).toFixed(3)}" z="${zOffset.toFixed(3)}" />`);
+                vertices.push(`<vertex x="${(px * s).toFixed(3)}" y="${(py * s).toFixed(3)}" z="${(zOffset + height).toFixed(3)}" />`);
                 
                 vIDs[gy * gridW + gx] = vCount;
                 vCount += 2;
@@ -472,6 +512,8 @@ function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, z
     }
 
     for (let gy = 0; gy < gridH - 1; gy++) {
+        if (gy % 50 === 0) await yieldToUI(); 
+
         for (let gx = 0; gx < gridW - 1; gx++) {
             const tl = vIDs[gy * gridW + gx];
             const tr = vIDs[gy * gridW + (gx + 1)];
@@ -479,17 +521,15 @@ function generateMeshString(id, name, matPid, matPindex, valArray, s, zOffset, z
             const br = vIDs[(gy + 1) * gridW + (gx + 1)];
 
             if (tl !== -1 && tr !== -1 && bl !== -1 && br !== -1) {
-                // Top Surface
-                tArr.push(`<triangle v1="${tl+1}" v2="${bl+1}" v3="${br+1}" />`);
-                tArr.push(`<triangle v1="${tl+1}" v2="${br+1}" v3="${tr+1}" />`);
-                // Bottom Surface (Flat)
-                tArr.push(`<triangle v1="${tl}" v2="${br}" v3="${bl}" />`);
-                tArr.push(`<triangle v1="${tl}" v2="${tr}" v3="${br}" />`);
+                triangles.push(`<triangle v1="${tl+1}" v2="${bl+1}" v3="${br+1}" />`);
+                triangles.push(`<triangle v1="${tl+1}" v2="${br+1}" v3="${tr+1}" />`);
+                triangles.push(`<triangle v1="${tl}" v2="${br}" v3="${bl}" />`);
+                triangles.push(`<triangle v1="${tl}" v2="${tr}" v3="${br}" />`);
             }
         }
     }
 
-    return `<object id="${id}" name="${name}" pid="${matPid}" pindex="${matPindex}" type="model"><mesh><vertices>${vArr.join("")}</vertices><triangles>${tArr.join("")}</triangles></mesh></object>`;
+    return `<object id="${id}" name="${name}" pid="${matPid}" pindex="${matPindex}" type="model"><mesh><vertices>${vertices.join('')}</vertices><triangles>${triangles.join('')}</triangles></mesh></object>`;
 }
 
 init();

@@ -5,12 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CMYK Lithophane Designer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <!-- Links to the external style sheet -->
     <link rel="stylesheet" href="style.css">
     <!-- External Library for ZIP creation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
+
+<!-- Progress Overlay -->
+<div id="progressOverlay">
+    <div class="progress-box">
+        <h3 id="progressText">Processing...</h3>
+        <div class="progress-bar-bg">
+            <div id="progressBar" class="progress-bar-fill"></div>
+        </div>
+        <div id="progressSub">Initializing...</div>
+    </div>
+</div>
 
 <div class="app-container">
     <!-- SIDEBAR -->
@@ -31,7 +41,7 @@
                 <div class="upload-card">
                     <div class="upload-label">
                         <span class="upload-icon" style="background:#fff;"></span>
-                        Mask Shape (Black/White)
+                        Mask (Optional)
                     </div>
                     <input type="file" id="maskInput" accept="image/*">
                 </div>
@@ -76,7 +86,6 @@
         </div>
 
         <button class="process-btn" onclick="generateLayers()">1. Generate Previews</button>
-        <!-- New Download Button (Initially Hidden or Disabled) -->
         <button id="btnDownload" class="process-btn" style="background:#333; color:#888; margin-top:10px;" onclick="download3MF()" disabled>2. Download 3MF</button>
     </div>
 
@@ -89,11 +98,11 @@
     <div class="output-section">
         <h3 style="margin-top:0; color:#fff;">Generated Layers Preview</h3>
         <div class="preview-grid">
-            <div class="channel-card"><h4>Composite</h4><canvas id="refCanvas"></canvas></div>
-            <div class="channel-card"><h4>Cyan</h4><canvas id="cCanvas"></canvas></div>
-            <div class="channel-card"><h4>Magenta</h4><canvas id="mCanvas"></canvas></div>
-            <div class="channel-card"><h4>Yellow</h4><canvas id="yCanvas"></canvas></div>
-            <div class="channel-card"><h4>White</h4><canvas id="wCanvas"></canvas></div>
+            <div class="channel-card"><h4>Composite Preview</h4><canvas id="refCanvas"></canvas></div>
+            <div class="channel-card"><h4>Cyan (Thickness)</h4><canvas id="cCanvas"></canvas></div>
+            <div class="channel-card"><h4>Magenta (Thickness)</h4><canvas id="mCanvas"></canvas></div>
+            <div class="channel-card"><h4>Yellow (Thickness)</h4><canvas id="yCanvas"></canvas></div>
+            <div class="channel-card"><h4>White (Base)</h4><canvas id="wCanvas"></canvas></div>
         </div>
     </div>
 </div>
