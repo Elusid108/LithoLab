@@ -1,7 +1,8 @@
 /**
- * CMYK DESIGNER ENGINE v5.1
+ * CMYK DESIGNER ENGINE v5.5
  * - Clear Layer Buttons Added
- * - Previous features maintained
+ * - Overlapping Color Layers (Base 0-0.6, Colors 0.6-2.0, Top 0.6-2.7)
+ * - Settings API Key management
  */
 
 // --- API KEYS ---
@@ -57,11 +58,12 @@ function saveSettings() {
 }
 
 function checkApiKey() {
-    const hasKey = state.apiKey && state.apiKey.length > 10;
+    // Regex for Google API Key (starts with AIza, 39 chars total)
+    const isValid = /^AIza[0-9A-Za-z-_]{35}$/.test(state.apiKey);
     const aiElements = document.querySelectorAll('.ai-feature');
     
     aiElements.forEach(el => {
-        el.style.display = hasKey ? 'flex' : 'none';
+        el.style.display = isValid ? 'flex' : 'none';
     });
 }
 
@@ -88,8 +90,6 @@ function clearLayer(type) {
         // If photo exists, switch back to virtual mask mode
         if (state.photo.loaded) {
              selectLayer('photo');
-             // Recalculate virtual mask props? 
-             // Virtual mask is just "canvas" or "photo" bounds
              state.mask.aspect = state.photo.aspect;
              state.mask.w = state.photo.w;
              state.mask.h = state.photo.h;
@@ -325,7 +325,7 @@ async function autoNameImage() {
         document.getElementById('fileNameInput').value = text;
         
     } catch (e) {
-        alert("Naming failed.");
+        alert("Naming failed. Check API Key.");
     } finally {
         ui.hide();
     }
@@ -529,6 +529,7 @@ function render(showGizmos = true) {
         ctx.globalCompositeOperation = 'destination-in';
         const imgToDraw = state.mask.alphaCanvas;
         ctx.drawImage(imgToDraw, -state.mask.w/2, -state.mask.h/2, state.mask.w, state.mask.h);
+        // VISUAL BORDER REMOVED from Edit Canvas per request
     } else {
         ctx.globalCompositeOperation = 'destination-in';
         ctx.fillStyle = '#000';
@@ -592,7 +593,7 @@ function generateLayers() {
 
     const btn = document.getElementById('btnDownload');
     btn.disabled = false;
-    btn.innerText = "Download 3MF";
+    btn.innerText = "Packaging 3MF...";
     btn.style.background = "#00d26a";
     btn.style.color = "#000";
 
@@ -841,45 +842,50 @@ async function exportTo3MF() {
     
     const w = state.pixelData.width;
     const h = state.pixelData.height;
+    const dist = state.pixelData.dist;
     
     // Find Original Bounds
     let origMinX = w, origMaxX = 0;
     for(let p=0; p<w*h; p++) {
-        // We only consider original mask pixels (ignore generated border pixels for scale)
-        // Wait, pixelData.mask now includes border.
-        // We need original mask to establish scale.
-        // Or we assume 100mm = "The content inside the border".
-        // Let's rely on maskBounds width before border expansion? No, we updated that.
-        // Okay, simpler: We calculate scale from the ORIGINAL mask bounds.
-        // How? We didn't store it separate from the expanded mask.
-        // We can just re-scan for non-white pixels? No, border is white.
-        // Let's assume the user wants the IMAGE to be 100mm, and the border adds to it.
-        // So scale = 100mm / (TotalWidth - 2*BorderPx).
-        
-        // BETTER: Use maskBounds.width which we set BEFORE adding border in generateLayers?
-        // Ah, in generateLayers, we update maskBounds at the end.
-        // Let's change generateLayers to store 'contentWidth' separately.
-        // For now, let's assume pixelData.maskBounds is the full size (including border).
-        // If we want 100mm to correspond to the IMAGE content:
-        // Scale = 100 / (maskBounds.width - borderPx*2).
-        
-        // BUT wait, user inputs "Width". Does "Width" mean total width or image width?
-        // In 3D printing apps, "Width" usually means the total bounding box of the STL.
-        // If I set 100mm, the STL should be 100mm wide.
-        // So Scale = 100 / maskBounds.width. 
-        // This is what I have now.
+        if(state.pixelData.mask[p] === 1) {
+            const x = p % w;
+            if(x < origMinX) origMinX = x;
+            if(x > origMaxX) origMaxX = x;
+        }
     }
+    const origWidth = origMaxX - origMinX;
+    const pxPerMM = origWidth / state.export.width;
+    const borderPx = state.export.border * pxPerMM;
+
+    const scale = state.export.width / origWidth; // Scale based on original content width
     
-    // FIX: Ensure maskBounds.width is accurate to the PIXEL count of the mask
-    const activeWidth = state.pixelData.maskBounds.width;
-    const scale = state.export.width / activeWidth;
+    // COLOR BLENDING LOGIC (Overlapping Layers)
+    // Instead of stacking (Base -> +C -> +M -> +Y), we overlap them in the same Z-space.
+    // Base: 0.0 - 0.6mm
+    // Colors: All start at 0.6mm.
+    // Heights: C, M, Y max height is typically ~1.4mm to 2.4mm total thickness?
+    // Standard CMYK litho:
+    // White Base: 0.6mm
+    // Colors: 0.6mm to (0.6 + ColorMax).
+    // They occupy the same volume so slicer handles multi-material blending.
+    // White Top: 0.6mm + ColorMax? Or blended too?
+    // Let's try overlapping them all starting at 0.6mm.
+    
+    const colorStart = 0.6; // Base thickness
+    const colorMax = 1.4;   // Max color thickness (Total 2.0)
+    // White Top for contrast? Usually covers everything.
     
     const layers = [
-        { name: "White_Base", id: 1, data: state.pixelData.w, zBase: 0.0, zHeight: 0.2, isFlat: true },
-        { name: "Cyan",       id: 2, data: state.pixelData.c, zBase: 0.2, zHeight: 0.6 },
-        { name: "Magenta",    id: 3, data: state.pixelData.m, zBase: 0.8, zHeight: 0.6 },
-        { name: "Yellow",     id: 4, data: state.pixelData.y, zBase: 1.4, zHeight: 0.6 },
-        { name: "White_Top",  id: 5, data: state.pixelData.w, zBase: 2.0, zHeight: 0.7 } 
+        { name: "White_Base", id: 1, data: state.pixelData.w, zBase: 0.0, zHeight: 0.6, isFlat: true },
+        // Colors overlap in same Z range
+        { name: "Cyan",       id: 2, data: state.pixelData.c, zBase: colorStart, zHeight: colorMax },
+        { name: "Magenta",    id: 3, data: state.pixelData.m, zBase: colorStart, zHeight: colorMax },
+        { name: "Yellow",     id: 4, data: state.pixelData.y, zBase: colorStart, zHeight: colorMax },
+        // White Top acts as the grayscale luminance map.
+        // It should probably also overlap or sit on top?
+        // Standard is White Top is the actual "Lithophane" surface.
+        // Let's try overlapping it too, but maybe with slightly more height to ensure coverage?
+        { name: "White_Top",  id: 5, data: state.pixelData.w, zBase: colorStart, zHeight: 2.1 } // Max 2.7 total
     ];
 
     let meshXML = "";
@@ -890,7 +896,7 @@ async function exportTo3MF() {
         ui.update((i / layers.length) * 80, `Generating: ${l.name}`, `Layer ${i+1}/5`);
         await yieldToUI();
 
-        const meshStr = await buildLayerMesh(l.id, l.name, l.data, scale, l.zBase, l.zHeight, l.isFlat);
+        const meshStr = await buildLayerMesh(l.id, l.name, l.data, scale, l.zBase, l.zHeight, l.isFlat, dist, borderPx);
         meshXML += meshStr;
         buildXML += `<item objectid="${l.id}" />`;
     }
@@ -904,7 +910,7 @@ async function exportTo3MF() {
 
     zip.folder("3D").file("3dmodel.model", finalXML);
     const content = await zip.generateAsync({type:"blob"}, (meta) => {
-        ui.update(90 + (meta.percent * 0.1), "Zipping...");
+        ui.update(90 + (meta.percent * 0.1), "Packaging 3MF...");
     });
     
     const a = document.createElement("a");
@@ -915,7 +921,7 @@ async function exportTo3MF() {
     ui.hide();
 }
 
-async function buildLayerMesh(id, name, valArray, s, zBase, zHeight, isFlat) {
+async function buildLayerMesh(id, name, valArray, s, zBase, zHeight, isFlat, distField, borderPx) {
     const w = state.pixelData.width;
     const h = state.pixelData.height;
     const skip = state.export.pixelStep;
@@ -936,9 +942,25 @@ async function buildLayerMesh(id, name, valArray, s, zBase, zHeight, isFlat) {
             const px = gx * skip;
             const py = gy * skip;
             const idx = py * w + px;
+            
+            let isActive = state.pixelData.mask[idx] === 1;
+            let isBorder = false;
+            
+            if (!isActive && distField && distField[idx] <= borderPx) {
+                isActive = true;
+                isBorder = true;
+            }
 
-            if (state.pixelData.mask[idx] === 1) {
-                let density = isFlat ? 1.0 : (valArray[idx] / 255);
+            if (isActive) {
+                let density = 0;
+                
+                if (isBorder) {
+                    if (name.includes("White")) density = 1.0;
+                    else density = 0;
+                } else {
+                    density = isFlat ? 1.0 : (valArray[idx] / 255);
+                }
+                
                 if(isNaN(density)) density = 0;
                 
                 const zTop = zBase + (zHeight * density);
