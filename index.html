@@ -8,6 +8,10 @@
     <link rel="stylesheet" href="style.css">
     <!-- External Library for ZIP creation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- PIXEstL port: color, image, STL -->
+    <script src="pixestl-color.js"></script>
+    <script src="pixestl-image.js"></script>
+    <script src="pixestl-stl.js"></script>
 </head>
 <body>
 
@@ -46,6 +50,9 @@
             <input type="password" id="apiKeyInput" class="text-input" placeholder="Paste your API Key here...">
         </div>
         <a href="https://aistudio.google.com/" target="_blank" class="settings-link">Get a free API Key at Google AI Studio &rarr;</a>
+        <p class="pixestl-credit" style="margin-top: 20px; font-size: 11px; color: #888;">
+            Lithophane generation based on <a href="https://github.com/gaugo87/PIXEstL" target="_blank" rel="noopener">PIXEstL</a> by gaugo87.
+        </p>
         <div class="modal-btns" style="margin-top: 20px;">
             <button class="cancel-btn" onclick="closeSettings()">Cancel</button>
             <button class="save-btn" onclick="saveSettings()">Save & Reload</button>
@@ -157,7 +164,10 @@
             </div>
         </div>
 
-        <button id="btnDownload" class="process-btn" style="background:#333; color:#888; margin-top:10px;" onclick="exportTo3MF()" disabled>Download 3MF</button>
+        <button id="btnDownload" class="process-btn" style="background:#333; color:#888; margin-top:10px;" onclick="exportToStlZip()" disabled>Download STL ZIP</button>
+        <p class="slicer-note" style="font-size: 11px; color: #888; margin-top: 10px; line-height: 1.4;">
+            Import all STLs in your slicer (e.g. Bambu Studio) as a single object with multiple parts. Assign filament colors to each layer.
+        </p>
     </div>
 
     <!-- RIGHT PANEL (Canvas + Output) -->

@@ -479,4 +479,6 @@ textarea {
 
 .settings-link { color: #00d26a; text-decoration: none; font-size: 12px; display: block; margin-top: 10px; }
 .settings-link:hover { text-decoration: underline; }
+.pixestl-credit a { color: #00d26a; text-decoration: none; }
+.pixestl-credit a:hover { text-decoration: underline; }
 /* --- STYLES END --- */

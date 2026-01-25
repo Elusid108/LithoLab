@@ -510,6 +510,11 @@ function updateUnitDisplay() {
     updateInputsFromState();
 }
 
+function updateLivePreviews() {
+    if (!state.pixelData) return;
+    generateLayers();
+}
+
 function updateBorderDisplay(val) {
     document.getElementById('borderVal').innerText = val + 'mm';
     state.export.border = parseFloat(val);
@@ -593,7 +598,7 @@ function generateLayers() {
 
     const btn = document.getElementById('btnDownload');
     btn.disabled = false;
-    btn.innerText = "Packaging 3MF...";
+    btn.innerText = "Download STL ZIP";
     btn.style.background = "#00d26a";
     btn.style.color = "#000";
 
@@ -639,7 +644,7 @@ function generateLayers() {
         }
     }
     
-    const bounds = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    let bounds = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
     state.pixelData.maskBounds.width = bounds.w;
     
     // 2. Shape-Aware Border Logic (Distance Field)
@@ -729,8 +734,9 @@ function generateLayers() {
     }
     
     // Update bounds object for cropping with new border dims
-    bounds.x = minX; bounds.y = minY; bounds.w = maxX - minX; bounds.h = maxY - minY;
-    
+    bounds = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    state.pixelData.bounds = bounds;
+
     state.pixelData.dist = null; // Clear if used locally or store?
     // We actually need dist for live slider if we want to change border WITHOUT re-gen...
     // But currently we re-gen border pixels into mask=1.
@@ -804,7 +810,7 @@ function setPxRGB(imgData, i, r, g, b) {
 }
 
 
-// --- ASYNC 3MF EXPORT LOGIC ---
+// --- ASYNC STL ZIP EXPORT (PIXEstL port) ---
 const ui = {
     overlay: document.getElementById('progressOverlay'),
     bar: document.getElementById('progressBar'),
@@ -821,180 +827,89 @@ const ui = {
 
 const yieldToUI = () => new Promise(r => setTimeout(r, 0));
 
-async function exportTo3MF() {
-    if (!JSZip || !state.pixelData) return;
-
-    const fname = document.getElementById('fileNameInput').value.replace(/[^a-z0-9]/gi, '_') || "Lithophane";
-
-    ui.show();
-    ui.update(0, "Initializing...");
-    await yieldToUI();
-
-    const zip = new JSZip();
-    zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
-    zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
-
-    // SCALE CALCULATION UPDATE
-    // Original shape width = X mm. Border adds to this.
-    // If user says "100mm", they mean the shape. The final print will be 100mm + border.
-    // If we want 100mm to include border, we scale differently.
-    // Usually, Lithophane size = Image size. Border is added on top.
-    
-    const w = state.pixelData.width;
-    const h = state.pixelData.height;
-    const dist = state.pixelData.dist;
-    
-    // Find Original Bounds
-    let origMinX = w, origMaxX = 0;
-    for(let p=0; p<w*h; p++) {
-        if(state.pixelData.mask[p] === 1) {
-            const x = p % w;
-            if(x < origMinX) origMinX = x;
-            if(x > origMaxX) origMaxX = x;
+async function exportToStlZip() {
+    try {
+        const hasJSZip = !!JSZip;
+        const hasPixelData = !!state.pixelData;
+        const hasPIXESTL = !!window.PIXESTL_STL;
+        if (!hasJSZip || !hasPixelData || !hasPIXESTL) {
+            return;
         }
-    }
-    const origWidth = origMaxX - origMinX;
-    const pxPerMM = origWidth / state.export.width;
-    const borderPx = state.export.border * pxPerMM;
 
-    const scale = state.export.width / origWidth; // Scale based on original content width
-    
-    // COLOR BLENDING LOGIC (Overlapping Layers)
-    // Instead of stacking (Base -> +C -> +M -> +Y), we overlap them in the same Z-space.
-    // Base: 0.0 - 0.6mm
-    // Colors: All start at 0.6mm.
-    // Heights: C, M, Y max height is typically ~1.4mm to 2.4mm total thickness?
-    // Standard CMYK litho:
-    // White Base: 0.6mm
-    // Colors: 0.6mm to (0.6 + ColorMax).
-    // They occupy the same volume so slicer handles multi-material blending.
-    // White Top: 0.6mm + ColorMax? Or blended too?
-    // Let's try overlapping them all starting at 0.6mm.
-    
-    const colorStart = 0.6; // Base thickness
-    const colorMax = 1.4;   // Max color thickness (Total 2.0)
-    // White Top for contrast? Usually covers everything.
-    
-    const layers = [
-        { name: "White_Base", id: 1, data: state.pixelData.w, zBase: 0.0, zHeight: 0.6, isFlat: true },
-        // Colors overlap in same Z range
-        { name: "Cyan",       id: 2, data: state.pixelData.c, zBase: colorStart, zHeight: colorMax },
-        { name: "Magenta",    id: 3, data: state.pixelData.m, zBase: colorStart, zHeight: colorMax },
-        { name: "Yellow",     id: 4, data: state.pixelData.y, zBase: colorStart, zHeight: colorMax },
-        // White Top acts as the grayscale luminance map.
-        // It should probably also overlap or sit on top?
-        // Standard is White Top is the actual "Lithophane" surface.
-        // Let's try overlapping it too, but maybe with slightly more height to ensure coverage?
-        { name: "White_Top",  id: 5, data: state.pixelData.w, zBase: colorStart, zHeight: 2.1 } // Max 2.7 total
-    ];
+        const fname = document.getElementById('fileNameInput').value.replace(/[^a-z0-9]/gi, '_') || "Lithophane";
 
-    let meshXML = "";
-    let buildXML = "<build>";
-
-    for(let i=0; i<layers.length; i++) {
-        const l = layers[i];
-        ui.update((i / layers.length) * 80, `Generating: ${l.name}`, `Layer ${i+1}/5`);
+        ui.show();
+        ui.update(0, "Initializing...");
         await yieldToUI();
 
-        const meshStr = await buildLayerMesh(l.id, l.name, l.data, scale, l.zBase, l.zHeight, l.isFlat, dist, borderPx);
-        meshXML += meshStr;
-        buildXML += `<item objectid="${l.id}" />`;
-    }
-    
-    buildXML += "</build>";
+        const pd = state.pixelData;
+        const bounds = pd.bounds;
+        if (!bounds) { 
+            ui.hide(); 
+            alert("Generate previews first."); 
+            return; 
+        }
 
-    const finalXML = `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"><resources>${meshXML}</resources>${buildXML}</model>`;
-    
-    ui.update(90, "Compressing...");
-    await yieldToUI();
+        const opts = {
+            widthMm: state.export.width,
+            heightMm: state.export.height,
+            hasTransparency: !!state.mask.loaded,
+            plateThickness: 0.2,
+            textureMinThickness: 0.8,
+            textureMaxThickness: 2.7,
+            texturePixelWidth: 0.25,
+            colorPixelWidth: 0.8,
+            colorPixelLayerThickness: 0.1,
+            colorPixelLayerNumber: 5
+        };
 
-    zip.folder("3D").file("3dmodel.model", finalXML);
-    const content = await zip.generateAsync({type:"blob"}, (meta) => {
-        ui.update(90 + (meta.percent * 0.1), "Packaging 3MF...");
-    });
-    
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(content);
-    a.download = fname + ".3mf";
-    a.click();
+        const zip = new JSZip();
 
-    ui.hide();
-}
+        ui.update(10, "Building plate...");
+        await yieldToUI();
+        const plateFacets = PIXESTL_STL.buildPlate(pd, opts);
+        zip.file("layer-plate.stl", PIXESTL_STL.writeStlAscii("layer-plate", plateFacets));
 
-async function buildLayerMesh(id, name, valArray, s, zBase, zHeight, isFlat, distField, borderPx) {
-    const w = state.pixelData.width;
-    const h = state.pixelData.height;
-    const skip = state.export.pixelStep;
-    
-    const gridW = Math.floor(w / skip);
-    const gridH = Math.floor(h / skip);
-    
-    const vertices = [];
-    const triangles = [];
-    let vCount = 0;
-    
-    const vMap = new Int32Array(gridW * gridH).fill(-1);
+        ui.update(30, "Building texture layer...");
+        await yieldToUI();
+        const textureFacets = PIXESTL_STL.buildTextureLayer(pd, opts);
+        zip.file("layer-texture-White.stl", PIXESTL_STL.writeStlAscii("layer-texture-White", textureFacets));
 
-    for (let gy = 0; gy < gridH; gy++) {
-        if (gy % 50 === 0) await yieldToUI(); 
-
-        for (let gx = 0; gx < gridW; gx++) {
-            const px = gx * skip;
-            const py = gy * skip;
-            const idx = py * w + px;
-            
-            let isActive = state.pixelData.mask[idx] === 1;
-            let isBorder = false;
-            
-            if (!isActive && distField && distField[idx] <= borderPx) {
-                isActive = true;
-                isBorder = true;
-            }
-
-            if (isActive) {
-                let density = 0;
-                
-                if (isBorder) {
-                    if (name.includes("White")) density = 1.0;
-                    else density = 0;
-                } else {
-                    density = isFlat ? 1.0 : (valArray[idx] / 255);
-                }
-                
-                if(isNaN(density)) density = 0;
-                
-                const zTop = zBase + (zHeight * density);
-                const sx = (px * s).toFixed(3);
-                const sy = (py * s).toFixed(3);
-                
-                vertices.push(`<vertex x="${sx}" y="${sy}" z="${zBase.toFixed(3)}" />`);
-                vertices.push(`<vertex x="${sx}" y="${sy}" z="${zTop.toFixed(3)}" />`);
-                
-                vMap[gy * gridW + gx] = vCount;
-                vCount += 2;
+        const colorChannels = [
+            { channel: "c", name: "Cyan" },
+            { channel: "m", name: "Magenta" },
+            { channel: "y", name: "Yellow" }
+        ];
+        for (let i = 0; i < colorChannels.length; i++) {
+            const { channel, name } = colorChannels[i];
+            ui.update(40 + (i + 1) * 15, `Building ${name}...`);
+            await yieldToUI();
+            const facets = PIXESTL_STL.buildColorLayerAsHeightField(pd, channel, opts);
+            if (facets.length > 0) {
+                zip.file(`layer-${name}.stl`, PIXESTL_STL.writeStlAscii(`layer-${name}`, facets));
             }
         }
+
+        ui.update(90, "Compressing...");
+        await yieldToUI();
+        const content = await zip.generateAsync({ type: "blob" }, (meta) => {
+            ui.update(90 + meta.percent * 0.1, "Packaging STL ZIP...");
+        });
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(content);
+        a.download = fname + ".zip";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+
+        ui.hide();
+    } catch (error) {
+        ui.hide();
+        alert("Export failed: " + error.message);
+        console.error("Export error:", error);
     }
-
-    for (let gy = 0; gy < gridH - 1; gy++) {
-        if (gy % 50 === 0) await yieldToUI(); 
-
-        for (let gx = 0; gx < gridW - 1; gx++) {
-            const tl = vMap[gy * gridW + gx];
-            const tr = vMap[gy * gridW + (gx + 1)];
-            const bl = vMap[(gy + 1) * gridW + gx];
-            const br = vMap[(gy + 1) * gridW + (gx + 1)];
-
-            if (tl !== -1 && tr !== -1 && bl !== -1 && br !== -1) {
-                triangles.push(`<triangle v1="${tl+1}" v2="${bl+1}" v3="${br+1}" />`);
-                triangles.push(`<triangle v1="${tl+1}" v2="${br+1}" v3="${tr+1}" />`);
-                triangles.push(`<triangle v1="${tl}" v2="${br}" v3="${bl}" />`);
-                triangles.push(`<triangle v1="${tl}" v2="${tr}" v3="${br}" />`);
-            }
-        }
-    }
-
-    return `<object id="${id}" name="${name}" type="model"><mesh><vertices>${vertices.join('')}</vertices><triangles>${triangles.join('')}</triangles></mesh></object>`;
 }
 
 init();
