@@ -32,6 +32,23 @@ body {
     position: relative; /* For settings button positioning */
 }
 
+.app-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.app-brand-name {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.5px;
+}
+.app-version {
+    font-size: 12px;
+    color: #888;
+}
+
 .header-row {
     display: flex;
     justify-content: space-between;
@@ -376,6 +393,26 @@ button:disabled {
     cursor: not-allowed;
     transform: none !important;
     box-shadow: none !important;
+}
+
+.export-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 10px;
+}
+.export-format-select {
+    flex: 0 0 auto;
+    padding: 10px 12px;
+    background: #2d2d2d;
+    border: 1px solid #444;
+    color: #fff;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+}
+.export-row .process-btn {
+    flex: 1;
 }
 
 /* Output Preview */

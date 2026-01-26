@@ -51,12 +51,12 @@ endfacet
   }
 
   function writeStlAscii(name, facets) {
-    let s = `solid ${name}\n`;
+    const chunks = [`solid ${name}\n`];
     for (const tri of facets) {
-      s += facetToStl(tri[0], tri[1], tri[2]);
+      chunks.push(facetToStl(tri[0], tri[1], tri[2]));
     }
-    s += `endsolid ${name}\n`;
-    return s;
+    chunks.push(`endsolid ${name}\n`);
+    return chunks;
   }
 
   function buildPlate(pixelData, opts) {
@@ -130,6 +130,7 @@ endfacet
     const heightMm = opts.heightMm ?? 100;
     const mmPerPixelX = widthMm / w;
     const mmPerPixelY = heightMm / h;
+    const whiteBaseMm = opts.whiteBaseMm ?? 1;
     const facets = [];
     const transparent = (x, y) => {
       if (x < 0 || x >= w || y < 0 || y >= h) return true;
@@ -170,13 +171,33 @@ endfacet
         facets.push([v11, b01, b11]);
         facets.push([b00, b10, b11]);
         facets.push([b00, b11, b01]);
+
+        if (whiteBaseMm > 0) {
+          const zBot = -whiteBaseMm;
+          const b00_ = [i, j, zBot];
+          const b10_ = [i1, j, zBot];
+          const b01_ = [i, j1, zBot];
+          const b11_ = [i1, j1, zBot];
+          facets.push([b00_, b10_, b11_]);
+          facets.push([b00_, b11_, b01_]);
+          facets.push([b00, b10, b10_]);
+          facets.push([b00, b10_, b00_]);
+          facets.push([b10, b11, b11_]);
+          facets.push([b10, b11_, b10_]);
+          facets.push([b11, b01, b01_]);
+          facets.push([b11, b01_, b11_]);
+          facets.push([b01, b00, b00_]);
+          facets.push([b01, b00_, b01_]);
+        }
       }
     }
     return facets;
   }
 
-  function buildColorLayerAsHeightField(pixelData, channel, opts) {
+  function buildColorLayerAsHeightField(pixelData, channel, opts, extra) {
     const { bounds, mask, width: imgW } = pixelData;
+    const useInterior = !!(extra && extra.useInteriorOnly && pixelData.interior);
+    const vis = useInterior ? pixelData.interior : mask;
     const w = bounds.w;
     const h = bounds.h;
     const widthMm = opts.widthMm ?? 100;
@@ -187,12 +208,20 @@ endfacet
     const transparent = (x, y) => {
       if (x < 0 || x >= w || y < 0 || y >= h) return true;
       const idx = (bounds.y + y) * imgW + (bounds.x + x);
-      return mask && mask[idx] !== 1;
+      return !vis || vis[idx] !== 1;
     };
+    const quadVisible = (x, y) => {
+      if (transparent(x, y)) return false;
+      if (transparent(x + 1, y)) return false;
+      if (transparent(x, y + 1)) return false;
+      if (transparent(x + 1, y + 1)) return false;
+      return true;
+    };
+    const skip = useInterior ? (x, y) => !quadVisible(x, y) : (x, y) => transparent(x, y);
 
     for (let y = 0; y < h - 1; y++) {
       for (let x = 0; x < w - 1; x++) {
-        if (transparent(x, y)) continue;
+        if (skip(x, y)) continue;
         const i = x * mmPerPixelX;
         const j = y * mmPerPixelY;
         const i1 = (x + 1) * mmPerPixelX;

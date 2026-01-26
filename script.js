@@ -9,6 +9,7 @@
 const apiKey = localStorage.getItem('cmyk_api_key') || "";
 
 // --- CONFIGURATION ---
+const APP_VERSION = "1.0.0";
 const HANDLE_SIZE = 8;
 const ROT_HANDLE_OFFSET = 30;
 const CANVAS_PADDING = 50;
@@ -21,7 +22,7 @@ const state = {
     isDragging: false,
     dragAction: null,
     dragStart: { x:0, y:0 },
-    export: { width: 100, height: 100, pixelStep: 2, border: 3 },
+    export: { width: 100, height: 100, pixelStep: 2, border: 3, pixelSizeMm: 0.2 },
     photo: { img: null, x: 0, y: 0, w: 0, h: 0, rot: 0, loaded: false, isGenerated: false },
     mask: { img: null, x: 0, y: 0, w: 0, h: 0, rot: 0, loaded: false, aspect: 1, alphaCanvas: null, isGenerated: false },
     pixelData: null,
@@ -34,8 +35,13 @@ const cvs = document.getElementById('editorCanvas');
 const ctx = cvs.getContext('2d');
 
 function init() {
+    const verEl = document.getElementById("appVersion");
+    if (verEl) verEl.textContent = "v" + APP_VERSION;
     render();
     updateInputsFromState();
+    const pi = document.getElementById("pixelSizeInput");
+    if (pi) pi.value = state.export.pixelSizeMm;
+    updateExportGridReadout();
     checkApiKey();
 }
 
@@ -503,6 +509,7 @@ function updateDims(changed) {
         state.export.width = valH * aspect;
     }
     updateInputsFromState();
+    updateExportGridReadout();
 }
 
 function updateUnitDisplay() {
@@ -519,6 +526,26 @@ function updateBorderDisplay(val) {
     document.getElementById('borderVal').innerText = val + 'mm';
     state.export.border = parseFloat(val);
     if (state.pixelData) updateLivePreviews();
+}
+
+function updatePixelSizeDisplay(val) {
+    const v = parseFloat(val);
+    state.export.pixelSizeMm = v;
+    const el = document.getElementById('pixelSizeVal');
+    const gridEl = document.getElementById('exportGridVal');
+    if (el) el.innerText = v + ' mm';
+    updateExportGridReadout();
+}
+
+function updateExportGridReadout() {
+    const el = document.getElementById('exportGridVal');
+    if (!el) return;
+    const w = state.export.width;
+    const h = state.export.height;
+    const ps = state.export.pixelSizeMm || 0.2;
+    const exportW = Math.max(1, Math.min(2000, Math.round(w / ps)));
+    const exportH = Math.max(1, Math.min(2000, Math.round(h / ps)));
+    el.innerText = 'Export grid: ' + exportW + ' × ' + exportH + ' px';
 }
 
 // --- RENDER ENGINE ---
@@ -598,7 +625,7 @@ function generateLayers() {
 
     const btn = document.getElementById('btnDownload');
     btn.disabled = false;
-    btn.innerText = "Download STL ZIP";
+    btn.innerText = "Download";
     btn.style.background = "#00d26a";
     btn.style.color = "#000";
 
@@ -617,6 +644,7 @@ function generateLayers() {
         width: w, height: h,
         c: new Uint8Array(w * h), m: new Uint8Array(w * h), y: new Uint8Array(w * h), w: new Uint8Array(w * h),
         mask: new Uint8Array(w * h),
+        interior: new Uint8Array(w * h),
         maskBounds: { width: w } 
     };
 
@@ -628,6 +656,7 @@ function generateLayers() {
             
             if (data[i+3] > 10) {
                 state.pixelData.mask[p] = 1;
+                state.pixelData.interior[p] = 1;
                 if (x < minX) minX = x;
                 if (x > maxX) maxX = x;
                 if (y < minY) minY = y;
@@ -751,13 +780,15 @@ function generateLayers() {
         cvs.width = bounds.w;
         cvs.height = bounds.h;
         const imgData = ctx.createImageData(bounds.w, bounds.h);
+        const useInterior = (dataChannel === 'c' || dataChannel === 'm' || dataChannel === 'y');
+        const vis = useInterior ? state.pixelData.interior : state.pixelData.mask;
         
         for (let y = 0; y < bounds.h; y++) {
             for (let x = 0; x < bounds.w; x++) {
                 const srcIdx = ((y + bounds.y) * w + (x + bounds.x));
                 const dstIdx = (y * bounds.w + x) * 4;
                 
-                if (srcIdx >= 0 && srcIdx < w*h && state.pixelData.mask[srcIdx] === 1) {
+                if (srcIdx >= 0 && srcIdx < w*h && vis[srcIdx] === 1) {
                     const val = state.pixelData[dataChannel][srcIdx];
                     if (dataChannel === 'c') setPxRGB(imgData, dstIdx, 255-val, 255, 255);
                     else if (dataChannel === 'm') setPxRGB(imgData, dstIdx, 255, 255-val, 255);
@@ -827,68 +858,181 @@ const ui = {
 
 const yieldToUI = () => new Promise(r => setTimeout(r, 0));
 
-async function exportToStlZip() {
-    try {
-        const hasJSZip = !!JSZip;
-        const hasPixelData = !!state.pixelData;
-        const hasPIXESTL = !!window.PIXESTL_STL;
-        if (!hasJSZip || !hasPixelData || !hasPIXESTL) {
-            return;
-        }
+function getExportOpts() {
+    return {
+        widthMm: state.export.width,
+        heightMm: state.export.height,
+        hasTransparency: !!state.mask.loaded,
+        plateThickness: 0.2,
+        textureMinThickness: 0.8,
+        textureMaxThickness: 2.7,
+        whiteBaseMm: 1,
+        texturePixelWidth: 0.25,
+        colorPixelWidth: 0.8,
+        colorPixelLayerThickness: 0.1,
+        colorPixelLayerNumber: 5
+    };
+}
 
-        const fname = document.getElementById('fileNameInput').value.replace(/[^a-z0-9]/gi, '_') || "Lithophane";
+function resamplePixelDataForExport(pd, widthMm, heightMm, pixelSizeMm) {
+    const bounds = pd.bounds;
+    if (!bounds || bounds.w <= 0 || bounds.h <= 0) return pd;
+    const ps = Math.max(0.01, pixelSizeMm);
+    let exportW = Math.max(1, Math.round(widthMm / ps));
+    let exportH = Math.max(1, Math.round(heightMm / ps));
+    exportW = Math.min(2000, exportW);
+    exportH = Math.min(2000, exportH);
+
+    const c = new Uint8Array(exportW * exportH);
+    const m = new Uint8Array(exportW * exportH);
+    const y = new Uint8Array(exportW * exportH);
+    const w = new Uint8Array(exportW * exportH);
+    const mask = new Uint8Array(exportW * exportH);
+    const interior = new Uint8Array(exportW * exportH);
+
+    const srcW = pd.width;
+    const b = bounds;
+
+    for (let ey = 0; ey < exportH; ey++) {
+        for (let ex = 0; ex < exportW; ex++) {
+            const sx = (ex + 0.5) * b.w / exportW - 0.5;
+            const sy = (ey + 0.5) * b.h / exportH - 0.5;
+            let ix = Math.round(sx);
+            let iy = Math.round(sy);
+            ix = Math.max(0, Math.min(b.w - 1, ix));
+            iy = Math.max(0, Math.min(b.h - 1, iy));
+            const srcIdx = (b.y + iy) * srcW + (b.x + ix);
+            const dstIdx = ey * exportW + ex;
+
+            c[dstIdx] = pd.c[srcIdx];
+            m[dstIdx] = pd.m[srcIdx];
+            y[dstIdx] = pd.y[srcIdx];
+            w[dstIdx] = pd.w[srcIdx];
+            mask[dstIdx] = pd.mask[srcIdx];
+            interior[dstIdx] = pd.interior ? pd.interior[srcIdx] : pd.mask[srcIdx];
+        }
+    }
+
+    return {
+        width: exportW,
+        height: exportH,
+        bounds: { x: 0, y: 0, w: exportW, h: exportH },
+        maskBounds: { width: exportW },
+        c, m, y, w, mask, interior
+    };
+}
+
+async function buildAllMeshes() {
+    const pd = state.pixelData;
+    const bounds = pd.bounds;
+    if (!bounds) return null;
+    const opts = getExportOpts();
+    const pixelSizeMm = state.export.pixelSizeMm ?? 0.2;
+    const pdExport = resamplePixelDataForExport(pd, opts.widthMm, opts.heightMm, pixelSizeMm);
+
+    ui.update(10, "Building plate...");
+    await yieldToUI();
+    const plateFacets = PIXESTL_STL.buildPlate(pdExport, opts);
+
+    ui.update(30, "Building texture layer...");
+    await yieldToUI();
+    const textureFacets = PIXESTL_STL.buildTextureLayer(pdExport, opts);
+
+    const colorChannels = [
+        { channel: "c", name: "Cyan" },
+        { channel: "m", name: "Magenta" },
+        { channel: "y", name: "Yellow" }
+    ];
+    const cyanFacets = [];
+    const magentaFacets = [];
+    const yellowFacets = [];
+    for (let i = 0; i < colorChannels.length; i++) {
+        const { channel, name } = colorChannels[i];
+        ui.update(40 + (i + 1) * 15, `Building ${name}...`);
+        await yieldToUI();
+        const facets = PIXESTL_STL.buildColorLayerAsHeightField(pdExport, channel, opts, { useInteriorOnly: true });
+        const dst = channel === "c" ? cyanFacets : channel === "m" ? magentaFacets : yellowFacets;
+        for (let k = 0; k < facets.length; k++) dst.push(facets[k]);
+    }
+
+    return {
+        opts,
+        plateFacets,
+        textureFacets,
+        cyanFacets,
+        magentaFacets,
+        yellowFacets
+    };
+}
+
+function facetsTo3mfMesh(facets) {
+    const vertexChunks = [];
+    const triangleChunks = [];
+    const fmt = (v) => `x="${Number(v[0]).toFixed(6)}" y="${Number(v[1]).toFixed(6)}" z="${Number(v[2]).toFixed(6)}"`;
+    for (let i = 0; i < facets.length; i++) {
+        const [v0, v1, v2] = facets[i];
+        const base = i * 3;
+        vertexChunks.push(`        <vertex ${fmt(v0)} />\n`, `        <vertex ${fmt(v1)} />\n`, `        <vertex ${fmt(v2)} />\n`);
+        triangleChunks.push(`        <triangle v1="${base}" v2="${base + 1}" v3="${base + 2}" />\n`);
+    }
+    return { vertexChunks, triangleChunks };
+}
+
+function exportDownload() {
+    const format = document.getElementById("exportFormat")?.value || "stlzip";
+    if (format === "3mf") exportTo3mf();
+    else exportToStlZip();
+}
+
+async function downloadStlsIndividually(fname, built) {
+    const toBlob = (parts) => new Blob(parts, { type: "text/plain" });
+    const files = [
+        ["layer-plate.stl", "layer-plate", built.plateFacets],
+        ["layer-texture-White.stl", "layer-texture-White", built.textureFacets],
+        ["layer-Cyan.stl", "layer-Cyan", built.cyanFacets],
+        ["layer-Magenta.stl", "layer-Magenta", built.magentaFacets],
+        ["layer-Yellow.stl", "layer-Yellow", built.yellowFacets]
+    ];
+    for (const [filename, solidName, facets] of files) {
+        if (!facets || facets.length === 0) continue;
+        const parts = PIXESTL_STL.writeStlAscii(solidName, facets);
+        const blob = toBlob(parts);
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fname + "-" + filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        await new Promise((r) => setTimeout(r, 150));
+    }
+}
+
+async function exportToStlZip() {
+    let built = null;
+    try {
+        if (!window.JSZip || !state.pixelData || !window.PIXESTL_STL) return;
+        const fname = document.getElementById("fileNameInput").value.replace(/[^a-z0-9]/gi, "_") || "Lithophane";
 
         ui.show();
         ui.update(0, "Initializing...");
         await yieldToUI();
 
-        const pd = state.pixelData;
-        const bounds = pd.bounds;
-        if (!bounds) { 
-            ui.hide(); 
-            alert("Generate previews first."); 
-            return; 
+        built = await buildAllMeshes();
+        if (!built) {
+            ui.hide();
+            alert("Generate previews first.");
+            return;
         }
 
-        const opts = {
-            widthMm: state.export.width,
-            heightMm: state.export.height,
-            hasTransparency: !!state.mask.loaded,
-            plateThickness: 0.2,
-            textureMinThickness: 0.8,
-            textureMaxThickness: 2.7,
-            texturePixelWidth: 0.25,
-            colorPixelWidth: 0.8,
-            colorPixelLayerThickness: 0.1,
-            colorPixelLayerNumber: 5
-        };
-
+        const { plateFacets, textureFacets, cyanFacets, magentaFacets, yellowFacets } = built;
         const zip = new JSZip();
-
-        ui.update(10, "Building plate...");
-        await yieldToUI();
-        const plateFacets = PIXESTL_STL.buildPlate(pd, opts);
-        zip.file("layer-plate.stl", PIXESTL_STL.writeStlAscii("layer-plate", plateFacets));
-
-        ui.update(30, "Building texture layer...");
-        await yieldToUI();
-        const textureFacets = PIXESTL_STL.buildTextureLayer(pd, opts);
-        zip.file("layer-texture-White.stl", PIXESTL_STL.writeStlAscii("layer-texture-White", textureFacets));
-
-        const colorChannels = [
-            { channel: "c", name: "Cyan" },
-            { channel: "m", name: "Magenta" },
-            { channel: "y", name: "Yellow" }
-        ];
-        for (let i = 0; i < colorChannels.length; i++) {
-            const { channel, name } = colorChannels[i];
-            ui.update(40 + (i + 1) * 15, `Building ${name}...`);
-            await yieldToUI();
-            const facets = PIXESTL_STL.buildColorLayerAsHeightField(pd, channel, opts);
-            if (facets.length > 0) {
-                zip.file(`layer-${name}.stl`, PIXESTL_STL.writeStlAscii(`layer-${name}`, facets));
-            }
-        }
+        const toBlob = (parts) => new Blob(parts, { type: "text/plain" });
+        zip.file("layer-plate.stl", toBlob(PIXESTL_STL.writeStlAscii("layer-plate", plateFacets)));
+        zip.file("layer-texture-White.stl", toBlob(PIXESTL_STL.writeStlAscii("layer-texture-White", textureFacets)));
+        if (cyanFacets.length) zip.file("layer-Cyan.stl", toBlob(PIXESTL_STL.writeStlAscii("layer-Cyan", cyanFacets)));
+        if (magentaFacets.length) zip.file("layer-Magenta.stl", toBlob(PIXESTL_STL.writeStlAscii("layer-Magenta", magentaFacets)));
+        if (yellowFacets.length) zip.file("layer-Yellow.stl", toBlob(PIXESTL_STL.writeStlAscii("layer-Yellow", yellowFacets)));
 
         ui.update(90, "Compressing...");
         await yieldToUI();
@@ -907,7 +1051,102 @@ async function exportToStlZip() {
         ui.hide();
     } catch (error) {
         ui.hide();
-        alert("Export failed: " + error.message);
+        const allocationFailed = /array buffer allocation failed|allocation failed/i.test(error.message);
+        if (built && allocationFailed) {
+            ui.show();
+            ui.update(50, "ZIP too large...", "Downloading each layer as separate STL files.");
+            await yieldToUI();
+            await downloadStlsIndividually(document.getElementById("fileNameInput").value.replace(/[^a-z0-9]/gi, "_") || "Lithophane", built);
+            ui.hide();
+            alert("ZIP was too large for one file. Each layer has been downloaded as a separate STL.");
+        } else {
+            alert("Export failed: " + error.message);
+        }
+        console.error("Export error:", error);
+    }
+}
+
+async function exportTo3mf() {
+    try {
+        if (!window.JSZip || !state.pixelData || !window.PIXESTL_STL) return;
+        const fname = document.getElementById("fileNameInput").value.replace(/[^a-z0-9]/gi, "_") || "Lithophane";
+
+        ui.show();
+        ui.update(0, "Initializing...");
+        await yieldToUI();
+
+        const built = await buildAllMeshes();
+        if (!built) {
+            ui.hide();
+            alert("Generate previews first.");
+            return;
+        }
+
+        const { plateFacets, textureFacets, cyanFacets, magentaFacets, yellowFacets } = built;
+        const objects = [
+            { id: 1, name: "layer-plate", facets: plateFacets },
+            { id: 2, name: "layer-texture-White", facets: textureFacets },
+            { id: 3, name: "layer-Cyan", facets: cyanFacets },
+            { id: 4, name: "layer-Magenta", facets: magentaFacets },
+            { id: 5, name: "layer-Yellow", facets: yellowFacets }
+        ];
+
+        const modelChunks = [
+            '<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n  <metadata name="Application">LithoLab</metadata>\n  <resources>\n'
+        ];
+        const buildChunks = [];
+        for (const obj of objects) {
+            if (obj.facets.length === 0) continue;
+            const { vertexChunks, triangleChunks } = facetsTo3mfMesh(obj.facets);
+            modelChunks.push(`    <object id="${obj.id}" type="model">\n      <mesh>\n        <vertices>\n`);
+            for (let k = 0; k < vertexChunks.length; k++) modelChunks.push(vertexChunks[k]);
+            modelChunks.push(`        </vertices>\n        <triangles>\n`);
+            for (let k = 0; k < triangleChunks.length; k++) modelChunks.push(triangleChunks[k]);
+            modelChunks.push(`        </triangles>\n      </mesh>\n    </object>\n`);
+            buildChunks.push(`  <item objectid="${obj.id}" />\n`);
+        }
+        modelChunks.push('  </resources>\n  <build>\n');
+        for (let k = 0; k < buildChunks.length; k++) modelChunks.push(buildChunks[k]);
+        modelChunks.push('  </build>\n</model>\n');
+
+        const contentTypesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>`;
+
+        const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" Target="3D/3dmodel.model" Id="rel0"/>
+</Relationships>`;
+
+        ui.update(95, "Packaging .3MF...");
+        await yieldToUI();
+
+        const zip = new JSZip();
+        zip.file("[Content_Types].xml", contentTypesXml);
+        zip.file("_rels/.rels", relsXml);
+        zip.file("3D/3dmodel.model", new Blob(modelChunks, { type: "application/xml" }));
+
+        const content = await zip.generateAsync({ type: "blob" });
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(content);
+        a.download = fname + ".3mf";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+
+        ui.hide();
+    } catch (error) {
+        ui.hide();
+        const allocationFailed = /array buffer allocation failed|allocation failed/i.test(error.message);
+        if (allocationFailed) {
+            alert("3MF export too large for this model. Use STL ZIP instead; if the ZIP is too large, each layer will download as a separate STL.");
+        } else {
+            alert("Export failed: " + error.message);
+        }
         console.error("Export error:", error);
     }
 }
