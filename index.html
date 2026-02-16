@@ -6,12 +6,9 @@
     <title>LithoLab – CMYK Lithophane Designer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <!-- External Library for ZIP creation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- PIXEstL port: color, image, STL -->
+    <!-- PIXEstL port: color, image (previews). STL export uses Java PIXEstL backend. -->
     <script src="pixestl-color.js"></script>
     <script src="pixestl-image.js"></script>
-    <script src="pixestl-stl.js"></script>
 </head>
 <body>
 
@@ -178,14 +175,10 @@
         </div>
 
         <div class="export-row">
-            <select id="exportFormat" class="export-format-select">
-                <option value="stlzip">STL ZIP</option>
-                <option value="3mf">.3MF</option>
-            </select>
-            <button id="btnDownload" class="process-btn" style="background:#333; color:#888;" onclick="exportDownload()" disabled>Download</button>
+            <button id="btnDownload" class="process-btn" style="background:#333; color:#888;" onclick="exportDownload()" disabled>Download STL ZIP</button>
         </div>
         <p class="slicer-note" style="font-size: 11px; color: #888; margin-top: 10px; line-height: 1.4;">
-            Import all STLs or .3MF in your slicer (e.g. Bambu Studio) as a single object with multiple parts. Assign filament colors to each layer.
+            Export uses the PIXEstL backend (run <code>node server.js</code>). Import the ZIP’s STLs in your slicer (e.g. Bambu Studio) as a single object; assign filament colors to each layer.
         </p>
     </div>
 
