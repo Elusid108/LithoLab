@@ -625,11 +625,15 @@ function generateLayers() {
     // Hide Gizmos for Capture
     render(false);
 
-    const btn = document.getElementById('btnDownload');
-    btn.disabled = false;
-    btn.innerText = "Download";
-    btn.style.background = "#00d26a";
-    btn.style.color = "#000";
+    const btnStl = document.getElementById('btnDownloadStl');
+    const btn3mf = document.getElementById('btnDownload3mf');
+    [btnStl, btn3mf].forEach(btn => {
+        if (btn) {
+            btn.disabled = false;
+            btn.style.background = "#00d26a";
+            btn.style.color = "#000";
+        }
+    });
 
     const totalPixels = cvs.width * cvs.height;
     state.export.pixelStep = (totalPixels > 2000000) ? 3 : 2; 
@@ -903,6 +907,18 @@ function exportDownload() {
     exportToStlZipViaBackend();
 }
 
+function exportDownload3mf() {
+    if (!state.pixelData) {
+        alert("Generate previews first.");
+        return;
+    }
+    if (!EXPORT_BACKEND_URL) {
+        alert("Export backend URL is not configured. Set EXPORT_BACKEND_URL in script.js and run the backend (node server.js).");
+        return;
+    }
+    exportTo3mfViaBackend();
+}
+
 async function exportToStlZipViaBackend() {
     const fname = (document.getElementById("fileNameInput").value || "Lithophane").replace(/[^a-z0-9]/gi, "_") || "Lithophane";
     const widthMm = state.export.width;
@@ -936,6 +952,56 @@ async function exportToStlZipViaBackend() {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(zipBlob);
         a.download = fname + ".zip";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        ui.hide();
+    } catch (err) {
+        ui.hide();
+        alert("Export failed: " + (err.message || String(err)) + "\n\nMake sure the backend is running (node server.js) and Java + PIXEstL are set up.");
+        console.error("Export error:", err);
+    }
+}
+
+async function exportTo3mfViaBackend() {
+    const fname = (document.getElementById("fileNameInput").value || "Lithophane").replace(/[^a-z0-9]/gi, "_") || "Lithophane";
+    const widthMm = state.export.width;
+    const heightMm = state.export.height;
+    try {
+        ui.show();
+        ui.update(10, "Preparing...");
+        await yieldToUI();
+        const blob = await exportCompositePngBlob();
+        if (!blob) {
+            ui.hide();
+            alert("Could not build composite image.");
+            return;
+        }
+        ui.update(25, "Sending to PIXEstL...");
+        await yieldToUI();
+        const form = new FormData();
+        form.append('image', blob, 'composite.png');
+        form.append('widthMm', String(widthMm));
+        form.append('heightMm', String(heightMm));
+        form.append('fileName', fname);
+        const url = EXPORT_BACKEND_URL.replace(/\/$/, '') + '/generate-3mf';
+        // #region agent log
+        fetch('http://127.0.0.1:7245/ingest/917ae731-0894-4091-a08e-afb05c06b4f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'script.js:exportTo3mfViaBackend',message:'3MF fetch about to run',data:{url,baseUrl:EXPORT_BACKEND_URL},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        const res = await fetch(url, { method: 'POST', body: form });
+        if (!res.ok) {
+            const errBody = await res.text();
+            fetch('http://127.0.0.1:7245/ingest/917ae731-0894-4091-a08e-afb05c06b4f2',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'script.js:exportTo3mfViaBackend',message:'3MF fetch failed',data:{status:res.status,statusText:res.statusText,url,errBody:errBody.slice(0,200)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+            const err = (() => { try { return JSON.parse(errBody); } catch(e) { return {}; } })();
+            throw new Error(err.error || res.statusText || "Backend error");
+        }
+        ui.update(90, "Downloading...");
+        await yieldToUI();
+        const threeMfBlob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(threeMfBlob);
+        a.download = fname + ".3mf";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

@@ -174,11 +174,12 @@
             </div>
         </div>
 
-        <div class="export-row">
-            <button id="btnDownload" class="process-btn" style="background:#333; color:#888;" onclick="exportDownload()" disabled>Download STL ZIP</button>
+        <div class="export-row" style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button id="btnDownloadStl" class="process-btn" style="background:#333; color:#888;" onclick="exportDownload()" disabled>Download STLs</button>
+            <button id="btnDownload3mf" class="process-btn" style="background:#333; color:#888;" onclick="exportDownload3mf()" disabled>Download 3MF</button>
         </div>
         <p class="slicer-note" style="font-size: 11px; color: #888; margin-top: 10px; line-height: 1.4;">
-            Export uses the PIXEstL backend (run <code>node server.js</code>). Import the ZIP’s STLs in your slicer (e.g. Bambu Studio) as a single object; assign filament colors to each layer.
+            Export uses the PIXEstL backend (run <code>node server.js</code>). Import the ZIP’s STLs in your slicer (e.g. Bambu Studio) as a single object; assign filament colors to each layer. <b>3MF:</b> Open in Bambu Studio; if asked to scale, choose No (units are mm). Assign filaments: Plate/Texture/White → slot 1; Cyan → 2; Magenta → 3; Yellow → 4. Set 100% infill in Process if needed.
         </p>
     </div>
 
