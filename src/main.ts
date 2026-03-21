@@ -665,14 +665,19 @@ function createSmartAlphaMask(img: HTMLImageElement): { canvas: HTMLCanvasElemen
   for (let y = 0; y < tempC.height; y++) {
     for (let x = 0; x < tempC.width; x++) {
       const i = (y * tempC.width + x) * 4
-      const r = d[i]!
-      d[i + 3] = r
-      if (d[i + 3]! > 10) {
+      const lum = 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!
+      if (lum > 128) {
+        d[i] = 255
+        d[i + 1] = 255
+        d[i + 2] = 255
+        d[i + 3] = 255
         if (x < minX) minX = x
         if (x > maxX) maxX = x
         if (y < minY) minY = y
         if (y > maxY) maxY = y
         foundAny = true
+      } else {
+        d[i + 3] = 0
       }
     }
   }
@@ -1042,14 +1047,27 @@ function generateLayers(): void {
   const c = requireCtx()
   render(false, c)
 
-  const totalPixels = cvs.width * cvs.height
-  state.export.pixelStep = totalPixels > 2_000_000 ? 3 : 2
-  const borderInput = $('borderInput') as HTMLInputElement | null
-  state.export.border = borderInput ? parseFloat(borderInput.value) || 0 : 0
+  const borderMm = parseFloat(($('borderInput') as HTMLInputElement | null)?.value ?? '') || 0
+  state.export.border = borderMm
+  const padPx = borderMm > 0 ? Math.ceil((borderMm / state.export.width) * cvs.width) + 15 : 0
 
-  const w = cvs.width
-  const h = cvs.height
-  const data = c.getImageData(0, 0, w, h).data
+  const tempCvs = document.createElement('canvas')
+  tempCvs.width = cvs.width + padPx * 2
+  tempCvs.height = cvs.height + padPx * 2
+  const tempCtx = tempCvs.getContext('2d')
+  if (!tempCtx) {
+    void window.alert('Could not create off-screen canvas context.')
+    render(true, c)
+    return
+  }
+  tempCtx.drawImage(cvs, padPx, padPx)
+
+  const w = tempCvs.width
+  const h = tempCvs.height
+  const data = tempCtx.getImageData(0, 0, w, h).data
+
+  const totalPixels = w * h
+  state.export.pixelStep = totalPixels > 2_000_000 ? 3 : 2
 
   let minX = w
   let maxX = 0
@@ -1113,8 +1131,12 @@ function generateLayers(): void {
         const idx = y * w + x
         if (dist[idx]! > 0) {
           let d = dist[idx]!
-          if (x > 0) d = Math.min(d, dist[idx - 1]! + 1)
-          if (y > 0) d = Math.min(d, dist[idx - w]! + 1)
+          if (x > 0) d = Math.min(d, dist[idx - 1]! + 1) // Left
+          if (y > 0) {
+            d = Math.min(d, dist[idx - w]! + 1) // Top
+            if (x > 0) d = Math.min(d, dist[idx - w - 1]! + Math.SQRT2) // Top-Left
+            if (x < w - 1) d = Math.min(d, dist[idx - w + 1]! + Math.SQRT2) // Top-Right
+          }
           dist[idx] = d
         }
       }
@@ -1125,8 +1147,12 @@ function generateLayers(): void {
         const idx = y * w + x
         if (dist[idx]! > 0) {
           let d = dist[idx]!
-          if (x < w - 1) d = Math.min(d, dist[idx + 1]! + 1)
-          if (y < h - 1) d = Math.min(d, dist[idx + w]! + 1)
+          if (x < w - 1) d = Math.min(d, dist[idx + 1]! + 1) // Right
+          if (y < h - 1) {
+            d = Math.min(d, dist[idx + w]! + 1) // Bottom
+            if (x < w - 1) d = Math.min(d, dist[idx + w + 1]! + Math.SQRT2) // Bottom-Right
+            if (x > 0) d = Math.min(d, dist[idx + w - 1]! + Math.SQRT2) // Bottom-Left
+          }
           dist[idx] = d
         }
 
