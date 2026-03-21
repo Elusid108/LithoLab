@@ -9,6 +9,7 @@ const { version } = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 
 }
 
 export default defineConfig({
+  base: '/LithoLab/',
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
