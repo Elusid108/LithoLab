@@ -1,214 +1,277 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LithoLab – CMYK Lithophane Designer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    <!-- PIXEstL port: color, image (previews). STL export uses Java PIXEstL backend. -->
-    <script src="pixestl-color.js"></script>
-    <script src="pixestl-image.js"></script>
-</head>
-<body>
-
-<!-- Progress Overlay -->
-<div id="progressOverlay">
-    <div class="progress-box">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LithoLab</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <!-- Progress Overlay -->
+    <div id="progressOverlay">
+      <div class="progress-box">
         <h3 id="progressText">Processing...</h3>
         <div class="progress-bar-bg">
-            <div id="progressBar" class="progress-bar-fill"></div>
+          <div id="progressBar" class="progress-bar-fill"></div>
         </div>
         <div id="progressSub">Initializing...</div>
+      </div>
     </div>
-</div>
 
-<!-- AI Prompt Overlay -->
-<div id="aiPromptOverlay">
-    <div class="prompt-box">
+    <!-- AI Prompt Overlay -->
+    <div id="aiPromptOverlay">
+      <div class="prompt-box">
         <h3 id="aiModalTitle">✨ Generate Image</h3>
-        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px;" id="aiModalDesc">Describe the image you want to create.</p>
+        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px" id="aiModalDesc">Describe the image you want to create.</p>
         <textarea id="aiPromptInput" placeholder="E.g., A cute cat..."></textarea>
-        <input type="hidden" id="aiMode" value="photo">
+        <input type="hidden" id="aiMode" value="photo" />
         <div class="modal-btns">
-            <button class="cancel-btn" onclick="document.getElementById('aiPromptOverlay').style.display='none'">Cancel</button>
-            <button class="ai-btn" onclick="confirmGenerateImage()">Generate ✨</button>
+          <button class="cancel-btn" onclick="document.getElementById('aiPromptOverlay').style.display='none'">Cancel</button>
+          <button class="ai-btn" onclick="confirmGenerateImage()">Generate ✨</button>
         </div>
+      </div>
     </div>
-</div>
 
-<!-- Settings Overlay -->
-<div id="settingsOverlay">
-    <div class="prompt-box">
+    <!-- Settings Overlay -->
+    <div id="settingsOverlay">
+      <div class="prompt-box">
         <h3>⚙️ Settings</h3>
-        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px;">Configure your API Key to enable AI features.</p>
-        <div class="input-group" style="text-align: left;">
-            <label>Google AI Studio API Key</label>
-            <input type="password" id="apiKeyInput" class="text-input" placeholder="Paste your API Key here...">
+        <p style="font-size: 12px; color: #aaa; margin-bottom: 15px">Configure your API Key to enable AI features.</p>
+        <div class="input-group" style="text-align: left">
+          <label>Google AI Studio API Key</label>
+          <input type="password" id="apiKeyInput" class="text-input" placeholder="Paste your API Key here..." />
+        </div>
+        <div class="input-group settings-models-row" style="text-align: left">
+          <div class="settings-models-refresh">
+            <span id="modelsCountLabel" class="settings-models-count">No models loaded</span>
+            <button type="button" id="refreshModelsBtn" class="settings-refresh-models-btn">Refresh Models</button>
+          </div>
+        </div>
+        <div id="textModelSelectWrap" class="input-group" style="text-align: left; display: none">
+          <label>Text Model</label>
+          <select id="textModelSelect" class="text-input"></select>
+        </div>
+        <div id="imageModelSelectWrap" class="input-group" style="text-align: left; display: none">
+          <label>Image Model</label>
+          <select id="imageModelSelect" class="text-input"></select>
         </div>
         <a href="https://aistudio.google.com/" target="_blank" class="settings-link">Get a free API Key at Google AI Studio &rarr;</a>
-        <p class="pixestl-credit" style="margin-top: 20px; font-size: 11px; color: #888;">
-            Lithophane generation based on <a href="https://github.com/gaugo87/PIXEstL" target="_blank" rel="noopener">PIXEstL</a> by gaugo87.
+        <p class="litholab-credit" style="margin-top: 20px; font-size: 11px; color: #888">
+          Lithophane generation based on <a href="https://github.com/gaugo87/PIXEstL" target="_blank" rel="noopener">PIXEstL</a> by gaugo87.
         </p>
-        <div class="modal-btns" style="margin-top: 20px;">
-            <button class="cancel-btn" onclick="closeSettings()">Cancel</button>
-            <button class="save-btn" onclick="saveSettings()">Save & Reload</button>
+        <div class="modal-btns" style="margin-top: 20px">
+          <button class="cancel-btn" onclick="closeSettings()">Cancel</button>
+          <button class="save-btn" onclick="saveSettings()">Save & Reload</button>
         </div>
+      </div>
     </div>
-</div>
 
-<div class="app-container">
-    <!-- SIDEBAR -->
-    <div class="sidebar">
+    <div class="app-container">
+      <!-- SIDEBAR -->
+      <div class="sidebar">
         <div class="app-brand">
-            <span class="app-brand-name">LithoLab</span>
-            <span id="appVersion" class="app-version"></span>
+          <span class="app-brand-name">LithoLab</span>
+          <span id="appVersion" class="app-version"></span>
         </div>
         <div class="header-row">
-            <h3>1. Upload Assets</h3>
-            <button class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
+          <h3>1. Upload Assets</h3>
+          <button class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
         </div>
 
         <div class="control-section">
-            <div class="upload-grid">
-                <div class="upload-card">
-                    <button class="clear-btn-x" onclick="clearLayer('photo')" title="Clear Photo">×</button>
-                    <div class="upload-label">
-                        <!-- Rainbow Icon for Photo -->
-                        <span class="upload-icon color"></span>
-                        Photo (Color)
-                    </div>
-                    <input type="file" id="photoInput" accept="image/*">
-                    <div class="ai-feature ai-btn-row">
-                        <button class="ai-btn" onclick="openAiPrompt('photo')">✨ Generate with AI</button>
-                        <button id="dl-photo" class="dl-btn" onclick="downloadSource('photo')" title="Download Generated Image">⬇️</button>
-                    </div>
-                    <div id="photoHistory" class="history-strip ai-feature"></div>
-                </div>
-                
-                <div class="upload-card">
-                    <button class="clear-btn-x" onclick="clearLayer('mask')" title="Clear Mask">×</button>
-                    <div class="upload-label">
-                        <!-- Half BW Icon for Mask -->
-                        <span class="upload-icon bw"></span>
-                        Mask (Optional)
-                    </div>
-                    <input type="file" id="maskInput" accept="image/*">
-                    <div class="ai-feature ai-btn-row">
-                        <button class="ai-btn" onclick="openAiPrompt('mask')">✨ Generate Mask AI</button>
-                        <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
-                    </div>
-                    <div id="maskHistory" class="history-strip ai-feature"></div>
-                </div>
+          <div class="upload-grid">
+            <div class="upload-card">
+              <button class="clear-btn-x" onclick="clearLayer('photo')" title="Clear Photo">×</button>
+              <div class="upload-label">
+                <!-- Rainbow Icon for Photo -->
+                <span class="upload-icon color"></span>
+                Photo (Color)
+              </div>
+              <input type="file" id="photoInput" accept="image/*" />
+              <div class="ai-feature ai-btn-row">
+                <button class="ai-btn" onclick="openAiPrompt('photo')">✨ Generate with AI</button>
+                <button id="dl-photo" class="dl-btn" onclick="downloadSource('photo')" title="Download Generated Image">⬇️</button>
+              </div>
+              <div id="photoHistory" class="history-strip ai-feature"></div>
             </div>
+
+            <div class="upload-card">
+              <button class="clear-btn-x" onclick="clearLayer('mask')" title="Clear Mask">×</button>
+              <div class="upload-label">
+                <!-- Half BW Icon for Mask -->
+                <span class="upload-icon bw"></span>
+                Mask (Optional)
+              </div>
+              <input type="file" id="maskInput" accept="image/*" />
+              <div class="ai-feature ai-btn-row">
+                <button class="ai-btn" onclick="openAiPrompt('mask')">✨ Generate Mask AI</button>
+                <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
+              </div>
+              <div id="maskHistory" class="history-strip ai-feature"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Section 2: Edit Controls -->
         <div class="control-section">
-            <h3>2. Edit & Arrange</h3>
-            <div class="layer-select">
-                <div class="layer-btn disabled" id="btn-mask" onclick="selectLayer('mask')">Edit Mask</div>
-                <div class="layer-btn active" id="btn-photo" onclick="selectLayer('photo')">Edit Photo</div>
-            </div>
-            <div class="instructions">
-                <strong>Controls:</strong><br>
-                • <b>Drag Corners:</b> Resize Selection<br>
-                • <b>Drag Top Handle:</b> Rotate Selection<br>
-                • <b>Drag Middle:</b> Move Selection
-            </div>
+          <h3>2. Edit & Arrange</h3>
+          <div class="layer-select">
+            <div class="layer-btn disabled" id="btn-mask" onclick="selectLayer('mask')">Edit Mask</div>
+            <div class="layer-btn active" id="btn-photo" onclick="selectLayer('photo')">Edit Photo</div>
+          </div>
+          <div class="instructions">
+            <strong>Controls:</strong><br />
+            • <b>Drag Corners:</b> Resize Selection<br />
+            • <b>Drag Top Handle:</b> Rotate Selection<br />
+            • <b>Drag Middle:</b> Move Selection
+          </div>
         </div>
 
-        <button class="process-btn" style="margin-bottom: 20px;" onclick="generateLayers()">GENERATE PREVIEWS</button>
+        <button class="process-btn" style="margin-bottom: 20px" onclick="generateLayers()">GENERATE PREVIEWS</button>
 
         <!-- Section 3: Settings -->
         <div class="control-section">
-            <h3>3. Lithophane Settings</h3>
-            
-            <div class="input-group">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <label style="margin:0;">Lithophane Name</label>
-                    <button class="ai-feature ai-btn-small" onclick="autoNameImage()">✨ Auto Name</button>
-                </div>
-                <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name...">
-            </div>
+          <h3>3. Lithophane Settings</h3>
 
-            <div class="input-group">
-                <label>White Border Width (mm)</label>
-                <input type="range" id="borderInput" min="0" max="10" step="0.5" value="3" oninput="updateBorderDisplay(this.value)">
-                <div style="text-align:right; font-size:11px; color:#888;" id="borderVal">3mm</div>
+          <div class="input-group">
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <label style="margin: 0">Lithophane Name</label>
+              <button class="ai-feature ai-btn-small" onclick="autoNameImage()">✨ Auto Name</button>
             </div>
+            <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name..." />
+          </div>
 
-            <div class="input-group">
-                <label>Pixel size (mm)</label>
-                <p style="font-size:11px; color:#888; margin:0 0 4px 0;">Smaller = finer detail, larger files. 0.2 mm is a good default.</p>
-                <input type="range" id="pixelSizeInput" min="0.1" max="2" step="0.1" value="0.2" oninput="updatePixelSizeDisplay(this.value)">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-                    <span style="font-size:11px; color:#888;" id="pixelSizeVal">0.2 mm</span>
-                    <span style="font-size:11px; color:#888;" id="exportGridVal">Export grid: 500 × 500 px</span>
-                </div>
-            </div>
+          <div class="input-group">
+            <label>White Border Width (mm)</label>
+            <input type="range" id="borderInput" min="0" max="10" step="0.5" value="3" oninput="updateBorderDisplay(this.value)" />
+            <div style="text-align: right; font-size: 11px; color: #888" id="borderVal">3mm</div>
+          </div>
 
-            <div class="settings-box">
-                <div class="setting-row"><span>First Layer (White)</span> <span class="setting-val">0.2mm</span></div>
-                <div class="setting-row"><span>Layer Height</span> <span class="setting-val">0.1mm</span></div>
-                <div class="setting-row"><span>Min Thickness</span> <span class="setting-val">0.8mm</span></div>
-                <div class="setting-row"><span>Max Thickness</span> <span class="setting-val">2.7mm</span></div>
+          <div class="input-group">
+            <label>Pixel size (mm)</label>
+            <p style="font-size: 11px; color: #888; margin: 0 0 4px 0">Smaller = finer detail, larger files. 0.2 mm is a good default.</p>
+            <input type="range" id="pixelSizeInput" min="0.1" max="2" step="0.1" value="0.2" oninput="updatePixelSizeDisplay(this.value)" />
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px">
+              <span style="font-size: 11px; color: #888" id="pixelSizeVal">0.2 mm</span>
+              <span style="font-size: 11px; color: #888" id="exportGridVal">Export grid: 500 × 500 px</span>
             </div>
+          </div>
 
-            <div class="dim-row">
-                <div class="dim-group">
-                    <span class="dim-label">Width</span>
-                    <input type="number" id="inpWidth" class="dim-input" onchange="updateDims('w')">
-                </div>
-                <div class="dim-x">x</div>
-                <div class="dim-group">
-                    <span class="dim-label">Height</span>
-                    <input type="number" id="inpHeight" class="dim-input" onchange="updateDims('h')">
-                </div>
-                <div>
-                    <select id="unitSelect" class="unit-toggle" onchange="updateUnitDisplay()">
-                        <option value="mm">mm</option>
-                        <option value="in">in</option>
-                    </select>
-                </div>
+          <div class="settings-box">
+            <div class="setting-row"><span>First Layer (White)</span> <span class="setting-val">0.2mm</span></div>
+            <div class="setting-row"><span>Layer Height</span> <span class="setting-val">0.1mm</span></div>
+            <div class="setting-row"><span>Min Thickness</span> <span class="setting-val">0.8mm</span></div>
+            <div class="setting-row"><span>Max Thickness</span> <span class="setting-val">2.7mm</span></div>
+          </div>
+
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">Width</span>
+              <input type="number" id="inpWidth" class="dim-input" onchange="updateDims('w')" />
             </div>
+            <div class="dim-x">x</div>
+            <div class="dim-group">
+              <span class="dim-label">Height</span>
+              <input type="number" id="inpHeight" class="dim-input" onchange="updateDims('h')" />
+            </div>
+            <div>
+              <select id="unitSelect" class="unit-toggle" onchange="updateUnitDisplay()">
+                <option value="mm">mm</option>
+                <option value="in">in</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="input-group" style="margin-top: 12px">
+            <label>Palette</label>
+            <div id="palettePreview" class="palette-preview" style="margin-top: 6px; background: #262626; padding: 10px; border-radius: 6px;">
+              <div id="paletteSwatches" style="display: flex; flex-wrap: wrap; gap: 4px;"></div>
+              <p id="paletteActiveCount" style="font-size: 11px; color: #888; margin: 5px 0 0 0;"></p>
+            </div>
+            <input type="file" id="paletteInput" accept=".json,application/json" class="text-input" style="font-size: 11px; padding: 5px; margin-top: 10px" />
+            <p id="paletteLoadedLabel" style="font-size: 11px; color: #888; margin: 6px 0 0 0"></p>
+          </div>
+
+          <h3 style="margin: 16px 0 8px 0; font-size: 13px">LithoLab generation</h3>
+
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">Plate thickness (mm)</span>
+              <input type="number" id="inpPlateThickness" class="dim-input" step="0.01" value="0.2" />
+            </div>
+            <div class="dim-group">
+              <span class="dim-label">Color pixel width (mm)</span>
+              <input type="number" id="inpColorPixelWidth" class="dim-input" step="0.01" value="0.8" />
+            </div>
+          </div>
+
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">Layer thickness (mm)</span>
+              <input type="number" id="inpLayerThickness" class="dim-input" step="0.01" value="0.1" />
+            </div>
+            <div class="dim-group">
+              <span class="dim-label">Layer count</span>
+              <input type="number" id="inpLayerCount" class="dim-input" step="1" min="1" value="5" />
+            </div>
+          </div>
+
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">Mode</span>
+              <select id="selPixelMode" class="unit-toggle" style="width: 100%; padding: 8px; margin-top: 4px">
+                <option value="ADDITIVE">ADDITIVE</option>
+                <option value="FULL">FULL</option>
+              </select>
+            </div>
+            <div class="dim-group">
+              <span class="dim-label">Color distance</span>
+              <select id="selColorDistance" class="unit-toggle" style="width: 100%; padding: 8px; margin-top: 4px">
+                <option value="CIELab">CIELab</option>
+                <option value="RGB">RGB</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">Max colors (0 = no limit)</span>
+              <input type="number" id="inpMaxColors" class="dim-input" step="1" min="0" value="0" />
+            </div>
+          </div>
         </div>
 
-        <div class="export-row" style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button id="btnDownloadStl" class="process-btn" style="background:#333; color:#888;" onclick="exportDownload()" disabled>Download STLs</button>
-            <button id="btnDownload3mf" class="process-btn" style="background:#333; color:#888;" onclick="exportDownload3mf()" disabled>Download 3MF</button>
+        <div class="export-row" style="display: flex; gap: 10px; flex-wrap: wrap">
+          <button id="btnDownloadStl" class="process-btn" style="background: #333; color: #888" onclick="exportDownload()" disabled>Download STLs</button>
         </div>
-        <p class="slicer-note" style="font-size: 11px; color: #888; margin-top: 10px; line-height: 1.4;">
-            Export uses the PIXEstL backend (run <code>node server.js</code>). Import the ZIP’s STLs in your slicer (e.g. Bambu Studio) as a single object; assign filament colors to each layer. <b>3MF:</b> Open in Bambu Studio; if asked to scale, choose No (units are mm). Assign filaments: Plate/Texture/White → slot 1; Cyan → 2; Magenta → 3; Yellow → 4. Set 100% infill in Process if needed.
-        </p>
-    </div>
+      </div>
 
-    <!-- RIGHT PANEL (Canvas + Output) -->
-    <div class="right-panel">
+      <!-- RIGHT PANEL (Canvas + Output) -->
+      <div class="right-panel">
         <!-- MAIN CANVAS -->
         <div class="canvas-area">
-            <canvas id="editorCanvas" width="800" height="600"></canvas>
+          <canvas id="editorCanvas" width="800" height="600"></canvas>
         </div>
 
         <!-- OUTPUTS -->
         <div class="output-section">
-            
-            <!-- Large Composite Preview -->
-            <div class="composite-preview-container">
-                <h4>Composite Preview (With Border)</h4>
-                <canvas id="refCanvas"></canvas>
-            </div>
+          <!-- Large Composite Preview -->
+          <div class="composite-preview-container">
+            <h4>Composite Preview (With Border)</h4>
+            <canvas id="refCanvas"></canvas>
+          </div>
 
-            <div class="preview-grid">
-                <div class="channel-card"><h4>Cyan (Thickness)</h4><canvas id="cCanvas"></canvas></div>
-                <div class="channel-card"><h4>Magenta (Thickness)</h4><canvas id="mCanvas"></canvas></div>
-                <div class="channel-card"><h4>Yellow (Thickness)</h4><canvas id="yCanvas"></canvas></div>
-                <div class="channel-card"><h4>White (Base+Top)</h4><canvas id="wCanvas"></canvas></div>
-            </div>
+          <div class="preview-grid">
+            <div class="channel-card"><h4>Cyan (Thickness)</h4><canvas id="cCanvas"></canvas></div>
+            <div class="channel-card"><h4>Magenta (Thickness)</h4><canvas id="mCanvas"></canvas></div>
+            <div class="channel-card"><h4>Yellow (Thickness)</h4><canvas id="yCanvas"></canvas></div>
+            <div class="channel-card"><h4>White (Base+Top)</h4><canvas id="wCanvas"></canvas></div>
+          </div>
         </div>
+      </div>
     </div>
-</div>
 
-<script src="script.js"></script>
-</body>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
 </html>
