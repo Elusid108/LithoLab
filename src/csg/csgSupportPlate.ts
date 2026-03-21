@@ -4,13 +4,20 @@ import { cuboidTriangles, writeSolidStl } from './stl'
 export function generateSupportPlateStl(colorImage: ImageData, genInstruction: GenInstruction): string {
   const colorPixelWidth = genInstruction.colorPixelWidth
   const plateThickness = genInstruction.plateThickness
-  const width = colorImage.width * colorPixelWidth
-  const height = colorImage.height * colorPixelWidth
-
-  const cx = (width - colorPixelWidth) / 2
-  const cy = (height - colorPixelWidth) / 2
   const cz = plateThickness / 2 - plateThickness
 
-  const facets = cuboidTriangles(cx, cy, cz, width, height, plateThickness)
+  const facets: string[] = []
+  const w = colorImage.width
+  for (let y = 0; y < colorImage.height; y++) {
+    for (let x = 0; x < w; x++) {
+      const alpha = colorImage.data[(y * w + x) * 4 + 3]
+      if (alpha <= 0) continue
+
+      const cx = x * colorPixelWidth
+      const cy = y * colorPixelWidth
+      facets.push(...cuboidTriangles(cx, cy, cz, colorPixelWidth, colorPixelWidth, plateThickness))
+    }
+  }
+
   return writeSolidStl(facets)
 }
