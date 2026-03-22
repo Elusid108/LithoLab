@@ -250,6 +250,18 @@ function setSelectedImageModelPersist(id: string): void {
   }
 }
 
+function isSettingsOverlayOpen(): boolean {
+  const overlay = $('settingsOverlay') as HTMLElement | null
+  return overlay?.style.display === 'flex'
+}
+
+/** Key used to show model UI: live field while settings open, else persisted state. */
+function getApiKeyForModelPanelsVisibility(): string {
+  const apiInput = $('apiKeyInput') as HTMLInputElement | null
+  if (isSettingsOverlayOpen() && apiInput) return apiInput.value.trim()
+  return state.apiKey.trim()
+}
+
 function reconcileSelectionsAfterFetch(sortedText: TextModelOption[], sortedImage: ImageModelOption[]): void {
   const textIds = new Set(sortedText.map((m) => modelIdFromName(m.name)))
   if (state.selectedTextModel && textIds.has(state.selectedTextModel)) {
@@ -272,10 +284,21 @@ function reconcileSelectionsAfterFetch(sortedText: TextModelOption[], sortedImag
 
 function updateSettingsModelUI(): void {
   const countEl = $('modelsCountLabel')
+  const modelsRow = $('settingsModelsRow')
   const textWrap = $('textModelSelectWrap')
   const imageWrap = $('imageModelSelectWrap')
   const textSel = $('textModelSelect') as HTMLSelectElement | null
   const imageSel = $('imageModelSelect') as HTMLSelectElement | null
+
+  const hasKey = getApiKeyForModelPanelsVisibility().length > 0
+  if (!hasKey) {
+    if (modelsRow) modelsRow.style.display = 'none'
+    if (textWrap) textWrap.style.display = 'none'
+    if (imageWrap) imageWrap.style.display = 'none'
+    return
+  }
+
+  if (modelsRow) modelsRow.style.display = ''
 
   if (countEl) {
     countEl.textContent =
@@ -1424,6 +1447,12 @@ function bindSettingsModels(): void {
       const key = (apiInput?.value.trim() || state.apiKey).trim()
       if (!key) return
       void fetchModels(key)
+    })
+  }
+  const apiKeyInput = $('apiKeyInput') as HTMLInputElement | null
+  if (apiKeyInput) {
+    apiKeyInput.addEventListener('input', () => {
+      updateSettingsModelUI()
     })
   }
 }
