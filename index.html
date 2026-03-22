@@ -120,13 +120,14 @@
                 <button class="ai-btn" onclick="openAiPrompt('photo')">✨ Generate with AI</button>
                 <button id="dl-photo" class="dl-btn" onclick="downloadSource('photo')" title="Download Generated Image">⬇️</button>
               </div>
-              <div id="activeGeneratedPhotoContainer" class="ai-feature" style="display: none; margin-top: 8px">
+              <div id="activeGeneratedPhotoContainer" style="display: none; margin-top: 8px">
                 <p style="font-size: 11px; color: #aaa; margin: 0 0 4px 0">Last AI-generated photo preview.</p>
                 <span id="generatedPhotoNameDisplay" style="color: #888; font-size: 11px"></span>
                 <div style="display: flex; align-items: flex-start; gap: 8px; margin-top: 6px">
                   <img
                     id="generatedPhotoPreview"
-                    alt="Generated photo preview"
+                    alt=""
+                    hidden
                     style="max-width: 100%; max-height: 120px; border-radius: 4px; border: 1px solid #444" />
                   <button type="button" id="btnDownloadGeneratedPhoto" class="dl-btn" title="Download with suggested name">⬇️</button>
                 </div>
@@ -146,13 +147,14 @@
                 <button class="ai-btn" onclick="openAiPrompt('mask')">✨ Generate Mask AI</button>
                 <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
               </div>
-              <div id="activeGeneratedMaskContainer" class="ai-feature" style="display: none; margin-top: 8px">
+              <div id="activeGeneratedMaskContainer" style="display: none; margin-top: 8px">
                 <p style="font-size: 11px; color: #aaa; margin: 0 0 4px 0">Last AI-generated mask preview.</p>
                 <span id="generatedMaskNameDisplay" style="color: #888; font-size: 11px"></span>
                 <div style="display: flex; align-items: flex-start; gap: 8px; margin-top: 6px">
                   <img
                     id="generatedMaskPreview"
-                    alt="Generated mask preview"
+                    alt=""
+                    hidden
                     style="max-width: 100%; max-height: 120px; border-radius: 4px; border: 1px solid #444" />
                   <button type="button" id="btnDownloadGeneratedMask" class="dl-btn" title="Download with suggested name">⬇️</button>
                 </div>

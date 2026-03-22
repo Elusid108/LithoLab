@@ -920,13 +920,20 @@ function syncActiveGeneratedUi(
 
   if (isGenerated) {
     container.style.display = 'block'
-    if (previewSrc) prev.src = previewSrc
+    if (previewSrc) {
+      prev.src = previewSrc
+      prev.hidden = false
+    } else {
+      prev.removeAttribute('src')
+      prev.hidden = true
+    }
     const slug = layer === 'photo' ? state.lastGeneratedPhotoName : state.lastGeneratedMaskName
     span.textContent =
       slug ? (layer === 'photo' ? `${slug}.jpg` : `${slug}.png`) : ''
   } else {
     container.style.display = 'none'
     prev.removeAttribute('src')
+    prev.hidden = true
     span.textContent = ''
     if (layer === 'photo') state.lastGeneratedPhotoName = null
     else state.lastGeneratedMaskName = null
