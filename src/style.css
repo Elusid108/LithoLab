@@ -555,6 +555,31 @@ textarea {
 
 .settings-link { color: #00d26a; text-decoration: none; font-size: 12px; display: block; margin-top: 10px; }
 .settings-link:hover { text-decoration: underline; }
+.settings-modal-footer {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 11px;
+    color: #888;
+}
+.settings-modal-footer .litholab-credit {
+    margin: 0 0 8px 0;
+    font-size: 11px;
+    color: #888;
+}
+.settings-footer-author-line {
+    margin: 0;
+    font-size: 12px;
+}
+.settings-footer-author-sep {
+    color: #888;
+}
+.settings-footer-author-link {
+    color: #00d26a;
+    text-decoration: none;
+    font-size: 12px;
+    display: inline-block;
+}
+.settings-footer-author-link:hover { text-decoration: underline; }
 .litholab-credit a { color: #00d26a; text-decoration: none; }
 .litholab-credit a:hover { text-decoration: underline; }
 /* --- STYLES END --- */

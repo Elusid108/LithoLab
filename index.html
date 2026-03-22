@@ -41,6 +41,12 @@
         <div class="input-group" style="text-align: left">
           <label>Google AI Studio API Key</label>
           <input type="password" id="apiKeyInput" class="text-input" placeholder="Paste your API Key here..." />
+          <a
+            href="https://aistudio.google.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="settings-link"
+            >Get a free API Key at Google AI Studio &rarr;</a>
         </div>
         <div class="input-group settings-models-row" style="text-align: left">
           <div class="settings-models-refresh">
@@ -56,13 +62,27 @@
           <label>Image Model</label>
           <select id="imageModelSelect" class="text-input"></select>
         </div>
-        <a href="https://aistudio.google.com/" target="_blank" class="settings-link">Get a free API Key at Google AI Studio &rarr;</a>
-        <p class="litholab-credit" style="margin-top: 20px; font-size: 11px; color: #888">
-          Lithophane generation based on <a href="https://github.com/gaugo87/PIXEstL" target="_blank" rel="noopener">PIXEstL</a> by gaugo87.
-        </p>
         <div class="modal-btns" style="margin-top: 20px">
           <button class="cancel-btn" onclick="closeSettings()">Cancel</button>
           <button class="save-btn" onclick="saveSettings()">Save & Reload</button>
+        </div>
+        <div class="settings-modal-footer">
+          <p class="litholab-credit">
+            Lithophane generation based on <a href="https://github.com/gaugo87/PIXEstL" target="_blank" rel="noopener">PIXEstL</a> by gaugo87.
+          </p>
+          <p class="settings-footer-author-line">
+            <a
+              href="https://chrismoore.me"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="settings-footer-author-link"
+              >chrismoore.me</a><span class="settings-footer-author-sep"> - </span><a
+              href="https://github.com/Elusid108"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="settings-footer-author-link"
+              >Elusid108</a>
+          </p>
         </div>
       </div>
     </div>

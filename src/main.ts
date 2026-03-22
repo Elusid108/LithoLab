@@ -1788,6 +1788,10 @@ async function exportDownload(): Promise<void> {
     ui.update(12, 'Loading image…', '')
     const img = await blobToImage(blob)
     const gen = buildGenInstructionFromState()
+    const pdBounds = state.pixelData?.bounds
+    if (pdBounds && pdBounds.w > 0) {
+      gen.destImageHeight = gen.destImageWidth * (pdBounds.h / pdBounds.w)
+    }
     ui.update(18, 'Generating ZIP…', '')
     const zipBlob = await generatePlateZip(img, JSON.stringify(currentPaletteJson), gen, {
       onProgress: (p) => {

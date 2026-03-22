@@ -42,6 +42,11 @@ export class Palette {
       if (colorObject.active === false) continue
       if (colorObject.layers && genInstruction.pixelCreationMethod === PixelCreationMethod.ADDITIVE) {
         const layersObject = colorObject.layers as Record<string, Record<string, unknown>>
+        let maxLayer = 0
+        let maxH = 0
+        let maxS = 0
+        let maxL = 0
+
         for (const layerKey of Object.keys(layersObject)) {
           const layer = parseInt(layerKey, 10)
           const subObject = layersObject[layerKey]
@@ -59,7 +64,23 @@ export class Palette {
             s = num(subObject, 'S')
             l = num(subObject, 'L')
           }
+          if (layer > maxLayer) {
+            maxLayer = layer
+            maxH = h
+            maxS = s
+            maxL = l
+          }
           colorLayerList.push(ColorLayer.fromHsl(hexColor, layer, h, s, l))
+        }
+
+        if (maxLayer > 0 && genInstruction.colorPixelLayerNumber > maxLayer) {
+          for (let extra = maxLayer + 1; extra <= genInstruction.colorPixelLayerNumber; extra++) {
+            let newL = maxL
+            if (maxL < 90 && maxL > 10) {
+              newL = Math.max(0, maxL - (extra - maxLayer) * 2)
+            }
+            colorLayerList.push(ColorLayer.fromHsl(hexColor, extra, maxH, maxS, newL))
+          }
         }
         if (!this.hexColorList.includes(hexColor)) this.hexColorList.push(hexColor)
       } else if (genInstruction.pixelCreationMethod === PixelCreationMethod.FULL) {
