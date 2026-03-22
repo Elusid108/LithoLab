@@ -122,7 +122,7 @@
       "L": 80.8
     }}
   },
-  "#FCE300":
+  "#F4EE2A":
   {
 	"name": "Yellow[PLA Basic]",
 	"active": true,
@@ -186,7 +186,7 @@
   },
   "#FFFFFF":
   {
-	"name": "White[PLA Basic]",
+	"name": "Jade White[PLA Basic]",
 	"active": true,
 	"layers": {
     "5": {
