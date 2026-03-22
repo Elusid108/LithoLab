@@ -202,6 +202,58 @@ function googleGeminiGenerateContentUrl(model: string, apiKey: string): string {
   return googleModelEndpointUrl(model, apiKey, 'generateContent')
 }
 
+function gemini15FlashNamingUrl(apiKey: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`
+}
+
+function sanitizeAssetFilenameSlug(raw: string): string {
+  let s = raw.trim().toLowerCase().replace(/\s+/g, '-')
+  s = s.replace(/[^a-z0-9_-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  return s || 'generated'
+}
+
+function parseJsonNameFromGeminiText(text: string): string {
+  const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  const obj = JSON.parse(t) as { name?: unknown }
+  if (typeof obj.name !== 'string' || !obj.name.trim()) throw new Error('Missing name in JSON')
+  return sanitizeAssetFilenameSlug(obj.name)
+}
+
+/** Vision-based slug for AI-generated assets (Gemini 1.5 Flash). */
+async function autoNameImage(apiKey: string, imageBase64: string, mimeType: string): Promise<string> {
+  const prompt =
+    'Generate a 3-5 word descriptive slug for this image, no extension. Return as a plain JSON object: {"name": "sluggish-name"}'
+  const response = await fetch(gemini15FlashNamingUrl(apiKey), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: mimeType || 'image/png', data: imageBase64 } },
+          ],
+        },
+      ],
+    }),
+  })
+  const data = (await response.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[]
+    error?: { message?: string }
+  }
+  if (!response.ok) {
+    throw new Error(parseApiError(data, response.statusText))
+  }
+  if (data.error?.message) {
+    throw new Error(data.error.message)
+  }
+  const parts = data.candidates?.[0]?.content?.parts ?? []
+  const text = parts.map((p) => p.text).find((t) => t && t.trim())?.trim()
+  if (!text) throw new Error('No text in naming response')
+  return parseJsonNameFromGeminiText(text)
+}
+
 function pickDefaultTextModel(sorted: TextModelOption[]): string | null {
   if (sorted.length === 0) return null
   for (const m of sorted) {
@@ -508,6 +560,11 @@ interface PixelData {
   bounds: PixelBounds
 }
 
+interface LayerHistoryEntry {
+  src: string
+  suggestedSlug: string | null
+}
+
 interface AppState {
   apiKey: string
   selectedTextModel: string
@@ -528,7 +585,10 @@ interface AppState {
   mask: MaskLayer
   pixelData: PixelData | null
   prompts: { photo: string; mask: string }
-  history: { photo: string[]; mask: string[] }
+  history: { photo: LayerHistoryEntry[]; mask: LayerHistoryEntry[] }
+  lastGeneratedPhotoName: string | null
+  lastGeneratedMaskName: string | null
+  aiPromptMode: 'photo' | 'mask'
   layerCache: Record<string, LayerCacheEntry>
 }
 
@@ -591,6 +651,9 @@ const state: AppState = {
   pixelData: null,
   prompts: { photo: '', mask: '' },
   history: { photo: [], mask: [] },
+  lastGeneratedPhotoName: null,
+  lastGeneratedMaskName: null,
+  aiPromptMode: 'photo',
   layerCache: {},
 }
 
@@ -774,6 +837,8 @@ function handleImageLoad(
     const dlMask = $('dl-mask') as HTMLElement | null
     if (dlMask) dlMask.style.display = isGenerated ? 'inline-block' : 'none'
 
+    syncActiveGeneratedUi('mask', isGenerated, isGenerated ? img.src : null)
+
     selectLayer('mask')
   } else {
     const layer = state.photo
@@ -826,27 +891,70 @@ function handleImageLoad(
 
     const dlPhoto = $('dl-photo') as HTMLElement | null
     if (dlPhoto) dlPhoto.style.display = isGenerated ? 'inline-block' : 'none'
+
+    syncActiveGeneratedUi('photo', isGenerated, isGenerated ? img.src : null)
   }
   invalidatePreviews()
   render(true, c)
 }
 
-function addToHistory(imgSrc: string, type: ActiveLayer): void {
-  state.history[type].unshift(imgSrc)
+function patchHistorySuggestedSlug(type: ActiveLayer, src: string, slug: string): void {
+  const entry = state.history[type].find((h) => h.src === src)
+  if (entry) entry.suggestedSlug = slug
+}
+
+function syncActiveGeneratedUi(
+  layer: 'photo' | 'mask',
+  isGenerated: boolean,
+  previewSrc: string | null,
+): void {
+  const container =
+    layer === 'photo' ? $('activeGeneratedPhotoContainer') : $('activeGeneratedMaskContainer')
+  const prev =
+    layer === 'photo'
+      ? ($('generatedPhotoPreview') as HTMLImageElement | null)
+      : ($('generatedMaskPreview') as HTMLImageElement | null)
+  const span =
+    layer === 'photo' ? $('generatedPhotoNameDisplay') : $('generatedMaskNameDisplay')
+  if (!container || !prev || !span) return
+
+  if (isGenerated) {
+    container.style.display = 'block'
+    if (previewSrc) prev.src = previewSrc
+    const slug = layer === 'photo' ? state.lastGeneratedPhotoName : state.lastGeneratedMaskName
+    span.textContent =
+      slug ? (layer === 'photo' ? `${slug}.jpg` : `${slug}.png`) : ''
+  } else {
+    container.style.display = 'none'
+    prev.removeAttribute('src')
+    span.textContent = ''
+    if (layer === 'photo') state.lastGeneratedPhotoName = null
+    else state.lastGeneratedMaskName = null
+  }
+}
+
+function addToHistory(
+  imgSrc: string,
+  type: ActiveLayer,
+  suggestedSlug: string | null = null,
+): void {
+  state.history[type].unshift({ src: imgSrc, suggestedSlug })
   if (state.history[type].length > 5) state.history[type].pop()
 
   const container = $(`${type}History`)
   if (!container) return
   container.replaceChildren()
 
-  for (const src of state.history[type]) {
+  for (const entry of state.history[type]) {
     const thumb = document.createElement('img')
-    thumb.src = src
+    thumb.src = entry.src
     thumb.className = 'history-thumb'
     thumb.addEventListener('click', () => {
+      if (type === 'photo') state.lastGeneratedPhotoName = entry.suggestedSlug
+      else state.lastGeneratedMaskName = entry.suggestedSlug
       const img = new Image()
       img.onload = () => handleImageLoad(img, type, 'Restored Image', true)
-      img.src = src
+      img.src = entry.src
     })
     container.appendChild(thumb)
   }
@@ -1502,6 +1610,7 @@ function clearLayer(type: ActiveLayer): void {
     if (photoInput) photoInput.value = ''
     const dlPhoto = $('dl-photo') as HTMLElement | null
     if (dlPhoto) dlPhoto.style.display = 'none'
+    syncActiveGeneratedUi('photo', false, null)
     invalidatePreviews()
   } else if (type === 'mask') {
     state.mask = {
@@ -1520,6 +1629,7 @@ function clearLayer(type: ActiveLayer): void {
     if (maskInput) maskInput.value = ''
     const dlMask = $('dl-mask') as HTMLElement | null
     if (dlMask) dlMask.style.display = 'none'
+    syncActiveGeneratedUi('mask', false, null)
     const btnMask = $('btn-mask')
     if (btnMask) btnMask.classList.add('disabled')
 
@@ -1538,16 +1648,66 @@ function clearLayer(type: ActiveLayer): void {
   updateInputsFromState()
 }
 
-function downloadSource(type: ActiveLayer): void {
-  const layer = state[type]
-  if (layer.loaded && layer.img) {
+async function downloadGeneratedPanelAsset(): Promise<void> {
+  const kind = state.aiPromptMode
+  const preview =
+    kind === 'photo'
+      ? ($('generatedPhotoPreview') as HTMLImageElement | null)
+      : ($('generatedMaskPreview') as HTMLImageElement | null)
+  if (!preview?.src) return
+  const slug =
+    kind === 'photo' ? state.lastGeneratedPhotoName : state.lastGeneratedMaskName
+  const base =
+    slug && slug.length > 0
+      ? slug
+      : kind === 'photo'
+        ? 'generated_image'
+        : 'generated_mask'
+  const ext = kind === 'photo' ? '.jpg' : '.png'
+  try {
+    const r = await fetch(preview.src)
+    const blob = await r.blob()
+    const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = layer.img.src
-    a.download = `generated_${type}.png`
+    a.href = url
+    a.download = `${base}${ext}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error(e)
   }
+}
+
+function downloadSource(type: ActiveLayer): void {
+  const layer = state[type]
+  const imgEl = layer.img
+  if (!layer.loaded || !imgEl) return
+  void (async () => {
+    try {
+      const slug = type === 'photo' ? state.lastGeneratedPhotoName : state.lastGeneratedMaskName
+      const base =
+        layer.isGenerated && slug && slug.length > 0
+          ? slug
+          : type === 'photo'
+            ? 'generated_image'
+            : 'generated_mask'
+      const ext = type === 'photo' ? '.jpg' : '.png'
+      const r = await fetch(imgEl.src)
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${base}${ext}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error(e)
+    }
+  })()
 }
 
 function openAiPrompt(mode: string): void {
@@ -1560,6 +1720,7 @@ function openAiPrompt(mode: string): void {
 
   overlay.style.display = 'flex'
   modeInput.value = mode
+  state.aiPromptMode = mode === 'mask' ? 'mask' : 'photo'
   input.value =
     mode === 'mask' || mode === 'photo' ? state.prompts[mode as 'photo' | 'mask'] : ''
 
@@ -1702,7 +1863,27 @@ async function confirmGenerateImage(): Promise<void> {
     }
 
     const imgSrc = `data:${imageMime};base64,${base64}`
-    addToHistory(imgSrc, mode)
+    addToHistory(imgSrc, mode, null)
+
+    void (async () => {
+      try {
+        const key = state.apiKey.trim()
+        if (!key) return
+        const slug = await autoNameImage(key, base64, imageMime)
+        if (mode === 'photo') {
+          state.lastGeneratedPhotoName = slug
+          const el = $('generatedPhotoNameDisplay')
+          if (el) el.textContent = `${slug}.jpg`
+        } else {
+          state.lastGeneratedMaskName = slug
+          const el = $('generatedMaskNameDisplay')
+          if (el) el.textContent = `${slug}.png`
+        }
+        patchHistorySuggestedSlug(mode, imgSrc, slug)
+      } catch (e) {
+        console.error('Auto-naming generated asset failed:', e)
+      }
+    })()
 
     const img = new Image()
     img.onload = () => {
@@ -1722,7 +1903,7 @@ async function confirmGenerateImage(): Promise<void> {
   }
 }
 
-async function autoNameImage(): Promise<void> {
+async function autoNameLithophaneFromPhoto(): Promise<void> {
   if (!state.photo.loaded || !state.photo.img) {
     void window.alert('Upload an image first!')
     return
@@ -1937,6 +2118,21 @@ function init(): void {
   if (photoInput) photoInput.addEventListener('change', (e) => loadLayer(e, 'photo'))
   if (maskInput) maskInput.addEventListener('change', (e) => loadLayer(e, 'mask'))
 
+  const btnDlGenPhoto = $('btnDownloadGeneratedPhoto')
+  if (btnDlGenPhoto) {
+    btnDlGenPhoto.addEventListener('click', () => {
+      state.aiPromptMode = 'photo'
+      void downloadGeneratedPanelAsset()
+    })
+  }
+  const btnDlGenMask = $('btnDownloadGeneratedMask')
+  if (btnDlGenMask) {
+    btnDlGenMask.addEventListener('click', () => {
+      state.aiPromptMode = 'mask'
+      void downloadGeneratedPanelAsset()
+    })
+  }
+
   attachCanvasInteraction()
 
   Object.assign(globalThis, {
@@ -1954,7 +2150,7 @@ function init(): void {
     updatePixelSizeDisplay,
     generateLayers,
     exportDownload,
-    autoNameImage,
+    autoNameLithophaneFromPhoto,
   })
 }
 
