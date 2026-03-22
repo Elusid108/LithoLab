@@ -503,7 +503,7 @@ function parseApiError(data: unknown, fallback: string): string {
 // --- TYPES ---
 type ActiveLayer = 'photo' | 'mask'
 
-type HitId = 'tl' | 'tr' | 'br' | 'bl' | 'rotate' | 'move'
+type HitId = 'tl' | 'tr' | 'br' | 'bl' | 't' | 'b' | 'l' | 'r' | 'rotate' | 'move'
 
 interface PhotoLayer {
   img: HTMLImageElement | null
@@ -1008,6 +1008,10 @@ function getHitHandle(layer: PhotoLayer | MaskLayer, mx: number, my: number): Hi
     { id: 'tr', x: layer.w / 2, y: -layer.h / 2 },
     { id: 'br', x: layer.w / 2, y: layer.h / 2 },
     { id: 'bl', x: -layer.w / 2, y: layer.h / 2 },
+    { id: 't', x: 0, y: -layer.h / 2 },
+    { id: 'b', x: 0, y: layer.h / 2 },
+    { id: 'l', x: -layer.w / 2, y: 0 },
+    { id: 'r', x: layer.w / 2, y: 0 },
     { id: 'rotate', x: 0, y: -layer.h / 2 - ROT_HANDLE_OFFSET },
   ]
 
@@ -1084,6 +1088,11 @@ function render(showGizmos = true, cIn?: CanvasRenderingContext2D): void {
     c.fillRect(hw - s / 2, -hh - s / 2, s, s)
     c.fillRect(hw - s / 2, hh - s / 2, s, s)
     c.fillRect(-hw - s / 2, hh - s / 2, s, s)
+
+    c.fillRect(-s / 2, -hh - s / 2, s, s) // top
+    c.fillRect(-s / 2, hh - s / 2, s, s) // bottom
+    c.fillRect(-hw - s / 2, -s / 2, s, s) // left
+    c.fillRect(hw - s / 2, -s / 2, s, s) // right
 
     c.beginPath()
     c.moveTo(0, -hh)
@@ -2073,15 +2082,41 @@ function attachCanvasInteraction(): void {
       const angle = Math.atan2(m.y - cy, m.x - cx)
       layer.rot = angle + Math.PI / 2
     } else {
-      const cx = layer.x + layer.w / 2
-      const cy = layer.y + layer.h / 2
-      const distStart = Math.hypot(start.x - cx, start.y - cy)
-      const distNow = Math.hypot(m.x - cx, m.y - cy)
-      const ratio = distStart > 0 ? distNow / distStart : 1
-      layer.w = init.w * ratio
-      layer.h = init.h * ratio
-      layer.x = cx - layer.w / 2
-      layer.y = cy - layer.h / 2
+      const cx = init.x + init.w / 2
+      const cy = init.y + init.h / 2
+
+      if (['tl', 'tr', 'bl', 'br'].includes(state.dragAction)) {
+        // Proportional scaling (Corners)
+        const distStart = Math.hypot(start.x - cx, start.y - cy)
+        const distNow = Math.hypot(m.x - cx, m.y - cy)
+        const ratio = distStart > 0 ? distNow / distStart : 1
+        layer.w = Math.max(10, init.w * ratio)
+        layer.h = Math.max(10, init.h * ratio)
+        layer.x = cx - layer.w / 2
+        layer.y = cy - layer.h / 2
+      } else if (['t', 'b', 'l', 'r'].includes(state.dragAction)) {
+        // Independent axis warping (Sides)
+        // Project mouse movements into the layer's local rotated coordinate space
+        const dxStart = start.x - cx
+        const dyStart = start.y - cy
+        const locStartX = dxStart * Math.cos(-init.rot) - dyStart * Math.sin(-init.rot)
+        const locStartY = dxStart * Math.sin(-init.rot) + dyStart * Math.cos(-init.rot)
+
+        const dxNow = m.x - cx
+        const dyNow = m.y - cy
+        const locNowX = dxNow * Math.cos(-init.rot) - dyNow * Math.sin(-init.rot)
+        const locNowY = dxNow * Math.sin(-init.rot) + dyNow * Math.cos(-init.rot)
+
+        if (state.dragAction === 'l' || state.dragAction === 'r') {
+          const ratioX = Math.abs(locStartX) > 0 ? Math.abs(locNowX / locStartX) : 1
+          layer.w = Math.max(10, init.w * ratioX)
+          layer.x = cx - layer.w / 2
+        } else if (state.dragAction === 't' || state.dragAction === 'b') {
+          const ratioY = Math.abs(locStartY) > 0 ? Math.abs(locNowY / locStartY) : 1
+          layer.h = Math.max(10, init.h * ratioY)
+          layer.y = cy - layer.h / 2
+        }
+      }
     }
     render(true, c)
   })
