@@ -1049,27 +1049,21 @@ function render(showGizmos = true, cIn?: CanvasRenderingContext2D): void {
 
   if (state.photo.loaded) drawLayer(state.photo, false, c)
 
-  c.save()
-  setTransform(state.mask, c)
-
   if (state.mask.loaded && state.mask.alphaCanvas) {
-    c.globalCompositeOperation = 'destination-in'
-    const imgToDraw = state.mask.alphaCanvas
-    c.drawImage(imgToDraw, -state.mask.w / 2, -state.mask.h / 2, state.mask.w, state.mask.h)
-  } else {
-    c.globalCompositeOperation = 'destination-in'
-    c.fillStyle = '#000'
-    c.fillRect(-state.mask.w / 2, -state.mask.h / 2, state.mask.w, state.mask.h)
-  }
+    c.save()
+    setTransform(state.mask, c)
 
-  c.globalCompositeOperation = 'source-over'
+    c.globalCompositeOperation = 'destination-in'
+    c.drawImage(state.mask.alphaCanvas, -state.mask.w / 2, -state.mask.h / 2, state.mask.w, state.mask.h)
+    c.globalCompositeOperation = 'source-over'
 
-  if (showGizmos) {
-    c.strokeStyle = 'rgba(255,255,255,0.3)'
-    c.lineWidth = 1
-    c.strokeRect(-state.mask.w / 2, -state.mask.h / 2, state.mask.w, state.mask.h)
+    if (showGizmos) {
+      c.strokeStyle = 'rgba(255,255,255,0.3)'
+      c.lineWidth = 1
+      c.strokeRect(-state.mask.w / 2, -state.mask.h / 2, state.mask.w, state.mask.h)
+    }
+    c.restore()
   }
-  c.restore()
 
   if (!showGizmos) return
 
