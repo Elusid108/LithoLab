@@ -1,91 +1,21 @@
-# LithoLab
+# LithoLab Web
+> A browser-based generator that transforms 2D images into multi-filament, full-color 3D printable lithophanes with integrated AI tooling.
 
-Web app to prepare a full-color photo (and optional mask), preview CMYK-style separation channels, and export a ZIP of STLs using a [PIXEstL](https://github.com/gaugo87/PIXEstL)-style generation pipeline. Lithophane generation is based on PIXEstL by gaugo87.
+## Overview
+LithoLab Web bridges the gap between digital images and physical 3D printing by enabling the creation of full-color, multi-layered lithophanes directly in the browser. It processes 2D images into separated CMYK and white depth maps, calculating the precise geometric facets needed for 3D extrusion based on color density. By providing an interactive canvas, users can align, mask, and preview their designs before generating the final meshes. The system outputs a comprehensive ZIP archive containing layer-specific STL files and filament swapping instructions, removing the complexity of manual 3D modeling for color lithophanes.
 
-## Requirements
+## Key Features
+* **Full-Color Lithophane Generation:** Converts standard 2D photos into precise, multi-layer 3D printable STL files tailored for CMYK filament blending.
+* **Interactive Editing Workflow:** Users navigate through image upload or AI generation, manipulate assets on a canvas with smart masking, preview CMYK separations, and export a ready-to-print ZIP archive.
+* **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, high-contrast stencils, and intelligent asset names on the fly.
 
-- [Node.js](https://nodejs.org/) 20 or newer (matches the GitHub Actions workflow)
+## Technical Architecture
+* **Frontend/UI:** TypeScript, Vite, HTML5 Canvas API
+* **Backend/Logic:** Client-side processing, Google Gemini API (REST), JSZip
+* **Infrastructure/Hardware:** Static Web Hosting, `@jscad/modeling` (for client-side mesh generation)
 
-## Quick start
-
-```bash
-npm ci    # or: npm install
-npm run dev
-```
-
-Open the URL Vite prints (usually `http://localhost:5173`).
-
-Other scripts:
-
-- `npm run build` — TypeScript check (`tsc`) and production bundle to `dist/`
-- `npm run preview` — Serve the production build locally
-
-## Core workflow
-
-1. Upload a **Photo (color)** image. An optional **Mask** (shape) image can be uploaded or generated later.
-2. Use **Edit Photo** / **Edit Mask** to choose which layer the canvas handles affect.
-3. Arrange and scale the layers on the canvas (see below).
-4. Click **GENERATE PREVIEWS** to rasterize the composite and build channel previews.
-5. When previews exist, **Download STLs** exports a ZIP of generated models.
-
-## Canvas controls
-
-The active layer shows a green outline and handles:
-
-| Interaction | Behavior |
-|-------------|----------|
-| Drag **inside** the layer | Move |
-| **Corner** handles | Proportional resize (aspect ratio preserved), anchored to the layer center at drag start |
-| **Edge midpoint** handles (top, bottom, left, right) | **Independent** width or height scaling (“warping”) along the layer’s local axes after rotation; minimum size 10 px |
-| **Top** handle (circle on the stalk above the box) | Rotate around the layer center |
-
-## Mask
-
-- The mask is optional. If present, it defines where the lithophane is visible (composite uses destination-in with the mask).
-- Uploaded mask images are converted to a high-contrast alpha stencil (bright regions become opaque).
-- If you load a photo before a mask, export dimensions can follow the photo’s aspect; loading a mask first ties export height to the mask aspect.
-
-## AI features (optional)
-
-Requires a Google AI Studio API key in **Settings** (stored in the browser). With a valid key:
-
-- **Refresh Models** loads available Gemini **text** models and **image** models; selections are persisted.
-- **Generate with AI** / **Generate Mask AI** opens a prompt modal (image generation uses the selected image model).
-- **Auto Name** next to the lithophane name uses the selected text model to suggest a filename from the photo.
-- AI-generated assets can receive **automatic** short slugs from vision/text models.
-- **History** strips under each upload card keep the last **five** generated images for quick recall.
-
-## Palette
-
-- A default CMYK-oriented palette ships as JSON under `palette/` (for example `palette/CMYK-0.10mm.json`).
-- You can load a replacement palette JSON file; the UI shows active color swatches and a count.
-
-## Lithophane and export settings
-
-- **Lithophane name** — Used for the ZIP download filename (sanitized).
-- **White border width** — Extra mm around the masked content (when a mask is used, distance-based expansion is applied during generation).
-- **Pixel size (mm)** — Physical size per texture pixel; the UI shows an **export grid** size (pixel dimensions) derived from the physical width/height.
-- **Width / height** — Physical **export** size in mm or inches (unit toggle).
-- The sidebar also shows a **static summary** of default layer thickness hints (first layer, layer height, min/max thickness). The values that go into the ZIP pipeline are the inputs under **LithoLab generation**:
-  - Plate thickness (mm)
-  - Color pixel width (mm)
-  - Layer thickness (mm)
-  - Layer count
-  - Mode: **ADDITIVE** or **FULL**
-  - Color distance: **CIELab** or **RGB**
-  - Max colors (`0` = no limit)
-
-## Outputs
-
-After **GENERATE PREVIEWS**:
-
-- **Composite preview** (with border) and per-channel canvases **Cyan**, **Magenta**, **Yellow**, and **White** (thickness / base).
-- **Download STLs** produces a ZIP built from the composite and current palette plus generation instructions.
-
-## Deployment
-
-Pushes to `main` run [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml): `npm ci`, `npm run build`, then upload `dist/` to **GitHub Pages**.
-
-## License
-
-See [LICENSE](LICENSE). Third-party credits include [PIXEstL](https://github.com/gaugo87/PIXEstL) as linked above.
+## Setup & Deployment
+1. Clone the repository and navigate to the project directory.
+2. Install project dependencies by running `npm install`.
+3. Start the local Vite development server using `npm run dev`.
+4. Build the application for production deployment with `npm run build`.
