@@ -1420,9 +1420,7 @@ async function generateLayers(): Promise<void> {
     void window.alert('Please upload a Photo first.')
     return
   }
-  const borderMm =
-    parseFloat(($('borderInput') as HTMLInputElement | null)?.value ?? '') || 0
-  state.export.border = borderMm
+  syncExportSettingsFromInputs()
 
   ui.show()
   ui.update(5, 'Building composite…', '')
@@ -1499,26 +1497,27 @@ async function generateLayers(): Promise<void> {
   ui.hide()
 }
 
-function updateBorderDisplay(val: string): void {
-  const borderVal = $('borderVal')
-  if (borderVal) borderVal.textContent = `${val}mm`
-  state.export.border = parseFloat(val)
+function syncExportSettingsFromInputs(): void {
+  state.export.border = readInputFloat('inpBorderWidth', state.export.border)
+  state.export.borderHeightMm = readInputFloat(
+    'inpBorderHeight',
+    DEFAULT_VALUE_BORDER_HEIGHT_MM,
+  )
+  state.export.pixelSizeMm = readInputFloat('inpPixelSize', state.export.pixelSizeMm)
+}
+
+function onBorderWidthChange(): void {
+  syncExportSettingsFromInputs()
+  updateExportGridReadout()
   if (state.pixelData) void generateLayers()
 }
 
-function updateBorderHeightDisplay(val: string): void {
-  const el = $('borderHeightVal')
-  const v = parseFloat(val)
-  if (el) el.textContent = `${v.toFixed(1)}mm`
-  state.export.borderHeightMm = v
-  // Border height only affects STL geometry — no need to rerun the previews.
+function onBorderHeightChange(): void {
+  syncExportSettingsFromInputs()
 }
 
-function updatePixelSizeDisplay(val: string): void {
-  const v = parseFloat(val)
-  state.export.pixelSizeMm = v
-  const el = $('pixelSizeVal')
-  if (el) el.textContent = `${v} mm`
+function onPixelSizeChange(): void {
+  syncExportSettingsFromInputs()
   updateExportGridReadout()
   if (state.pixelData) void generateLayers()
 }
@@ -1538,6 +1537,7 @@ function readInputInt(id: string, fallback: number): number {
 }
 
 function buildGenInstructionFromState(): GenInstruction {
+  syncExportSettingsFromInputs()
   const g = createDefaultGenInstruction()
   const ps = state.export.pixelSizeMm
   g.destImageWidth = state.export.width
@@ -2176,8 +2176,12 @@ function init(): void {
 
   render()
   updateInputsFromState()
-  const pi = $('pixelSizeInput') as HTMLInputElement | null
-  if (pi) pi.value = String(state.export.pixelSizeMm)
+  const bw = $('inpBorderWidth') as HTMLInputElement | null
+  if (bw) bw.value = String(state.export.border)
+  const bh = $('inpBorderHeight') as HTMLInputElement | null
+  if (bh) bh.value = String(state.export.borderHeightMm)
+  const ps = $('inpPixelSize') as HTMLInputElement | null
+  if (ps) ps.value = String(state.export.pixelSizeMm)
   updateExportGridReadout()
   checkApiKey()
 
@@ -2222,9 +2226,9 @@ function init(): void {
     confirmGenerateImage,
     updateDims,
     updateUnitDisplay,
-    updateBorderDisplay,
-    updateBorderHeightDisplay,
-    updatePixelSizeDisplay,
+    onBorderWidthChange,
+    onBorderHeightChange,
+    onPixelSizeChange,
     generateLayers,
     exportDownload,
     autoNameLithophaneFromPhoto,

@@ -46,6 +46,11 @@ export interface SilhouettePolygons {
   silhouettePolygonMm: PolygonSet
 }
 
+/** Mirror polygon Y to match STL raster `flipImage` (y' = heightMm - y). */
+export function flipPolygonSetY(set: PolygonSet, heightMm: number): PolygonSet {
+  return set.map((loop) => loop.map((p) => ({ x: p.x, y: heightMm - p.y })))
+}
+
 // ---------------------------------------------------------------------------
 // Polygon extraction (marching squares on a luminance-thresholded mask)
 // ---------------------------------------------------------------------------

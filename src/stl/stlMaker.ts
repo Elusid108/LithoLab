@@ -9,7 +9,7 @@ import { CSGWorkData } from '../csg/csgWorkData'
 import { writeSolidStl } from '../csg/stl'
 import { hasATransparentPixel } from '../util/imageUtil'
 import { emitRingPrism, emitSilhouettePrism, type PrismOptions } from '../csg/csgPolyPrism'
-import type { PolygonSet, SilhouettePolygons } from '../util/maskPolygon'
+import { flipPolygonSetY, type PolygonSet, type SilhouettePolygons } from '../util/maskPolygon'
 
 const FLEXIBLE_COLOR_PLATE_NB = 3
 
@@ -44,18 +44,69 @@ async function processRows(
   return all
 }
 
+function buildBorderFacets(
+  silhouette: PolygonSet,
+  mask: PolygonSet,
+  genInstruction: GenInstruction,
+  colorStackTop: number,
+  borderHeight: number,
+  includeTextureCap: boolean,
+  flatPrismOpts: PrismOptions,
+  texturePrismOpts: PrismOptions,
+  polyWidthMm: number,
+  nbColorPlate: number,
+  colorPlateLayerNb: number,
+): string[] {
+  if (silhouette.length === 0) return []
+
+  const facets: string[] = []
+
+  if (genInstruction.curve !== 0 && colorPlateLayerNb > 0) {
+    const sliceH = genInstruction.colorPixelLayerThickness * colorPlateLayerNb
+    for (let i = 0; i < nbColorPlate; i++) {
+      const ringBottom = i * sliceH
+      const ringTop = Math.min(colorStackTop, (i + 1) * sliceH)
+      if (ringTop > ringBottom) {
+        facets.push(
+          ...emitRingPrism(
+            silhouette,
+            mask,
+            ringBottom,
+            ringTop,
+            flatPrismOpts,
+            polyWidthMm,
+          ),
+        )
+      }
+    }
+  } else if (colorStackTop > 0) {
+    facets.push(
+      ...emitRingPrism(silhouette, mask, 0, colorStackTop, flatPrismOpts, polyWidthMm),
+    )
+  }
+
+  if (includeTextureCap && borderHeight > 0) {
+    facets.push(
+      ...emitRingPrism(
+        silhouette,
+        mask,
+        colorStackTop,
+        colorStackTop + borderHeight,
+        texturePrismOpts,
+        polyWidthMm,
+      ),
+    )
+  }
+
+  return facets
+}
+
 /**
  * Build the export zip.
  *
- * The `polygons` field carries the smoothed silhouette (mask + border XY) and
- * the inner mask polygon, both in mm space starting at (0, 0). They drive the
- * polygon-prism passes that replace the pixel-quantised silhouette edges:
- *   - Support plate: full polygon prism (no cuboids).
- *   - Color stack: ring prism (silhouette − mask) attached to the white-color
- *     STL so the printed border is one continuous smooth piece.
- *   - Texture: ring prism with adjustable Z height (`borderHeightMm` in the
- *     GenInstruction) so the border can be made physically taller than the
- *     texture base without affecting the per-pixel texture relief.
+ * Polygon prisms use Y-flipped mm coordinates so they align with flipped
+ * color/texture rasters. Support plate follows the inner mask only; the white
+ * border ring is exported as `layer-border.stl` for separate slicer materials.
  */
 export async function buildZip(
   colorImage: ImageData | null,
@@ -81,12 +132,13 @@ export async function buildZip(
   }
 
   const polygons = options.polygons
+  const flipH = genInstruction.destImageHeight
+  const maskFlipped = flipPolygonSetY(polygons.maskPolygonMm, flipH)
+  const silhouetteFlipped = flipPolygonSetY(polygons.silhouettePolygonMm, flipH)
+
   const colorStackTop =
     genInstruction.colorPixelLayerThickness * palette.getLayerCount()
   const borderHeight = Math.max(0, genInstruction.borderHeightMm)
-  // The plate + color cuboids are NOT curved by the existing emitters (only
-  // the texture row applies curveTriangleList), so we leave the plate/color
-  // ring prisms flat to stay consistent. The texture ring prism does curve.
   const flatPrismOpts: PrismOptions = {
     genInstruction,
     translate: [
@@ -105,8 +157,8 @@ export async function buildZip(
     ],
     applyCurve: true,
   }
-  const polyWidthMm = polygons.silhouettePolygonMm.length
-    ? polygonSpanX(polygons.silhouettePolygonMm)
+  const polyWidthMm = silhouetteFlipped.length
+    ? polygonSpanX(silhouetteFlipped)
     : genInstruction.destImageWidth
 
   const zip = new JSZip()
@@ -120,11 +172,18 @@ export async function buildZip(
 
   checkAbort()
 
+  let nbColorPlate = 1
+  let colorPlateLayerNb = -1
+  if (genInstruction.curve !== 0) {
+    colorPlateLayerNb = FLEXIBLE_COLOR_PLATE_NB
+    nbColorPlate = Math.floor(genInstruction.colorPixelLayerNumber / FLEXIBLE_COLOR_PLATE_NB)
+    nbColorPlate += genInstruction.colorPixelLayerNumber % FLEXIBLE_COLOR_PLATE_NB !== 0 ? 1 : 0
+  }
+
   if (colorImage) {
-    // Support plate: smooth polygon prism replaces the pixel-quantised plate.
     onProgress?.({ phase: 'plate', current: 0, total: 1 })
     const plateFacets = emitSilhouettePrism(
-      polygons.silhouettePolygonMm,
+      maskFlipped,
       -genInstruction.plateThickness,
       0,
       flatPrismOpts,
@@ -135,13 +194,26 @@ export async function buildZip(
 
     checkAbort()
 
-    let nbColorPlate = 1
-    let colorPlateLayerNb = -1
-    if (genInstruction.curve !== 0) {
-      colorPlateLayerNb = FLEXIBLE_COLOR_PLATE_NB
-      nbColorPlate = Math.floor(genInstruction.colorPixelLayerNumber / FLEXIBLE_COLOR_PLATE_NB)
-      nbColorPlate += genInstruction.colorPixelLayerNumber % FLEXIBLE_COLOR_PLATE_NB !== 0 ? 1 : 0
+    onProgress?.({ phase: 'border', current: 0, total: 1 })
+    const borderFacets = buildBorderFacets(
+      silhouetteFlipped,
+      maskFlipped,
+      genInstruction,
+      colorStackTop,
+      borderHeight,
+      genInstruction.textureLayer && texturedImage != null,
+      flatPrismOpts,
+      texturePrismOpts,
+      polyWidthMm,
+      nbColorPlate,
+      colorPlateLayerNb,
+    )
+    if (borderFacets.length > 0) {
+      zip.file('layer-border.stl', concatFacets(borderFacets))
     }
+    onProgress?.({ phase: 'border', current: 1, total: 1 })
+
+    checkAbort()
 
     const colorGroups = palette.hexColorGroupList()
     const totalColorJobs = colorGroups.length * nbColorPlate
@@ -153,7 +225,6 @@ export async function buildZip(
         if (colorName.length > 0) colorName += '+'
         colorName += palette.getColorName(hexColor)
       }
-      const isWhiteGroup = hexCodeList.includes('#FFFFFF')
 
       for (let i = 0; i < nbColorPlate; i++) {
         checkAbort()
@@ -182,31 +253,6 @@ export async function buildZip(
           'color',
           rowChunk,
         )
-        // The white-color group also carries the smooth border ring through
-        // the full color stack height so the printed silhouette is continuous.
-        if (isWhiteGroup && polygons.silhouettePolygonMm.length > 0) {
-          // Slice the border ring across the same Z range this color-plate
-          // sub-pass spans, so multi-plate curve mode lines up too.
-          let ringBottom = 0
-          let ringTop = colorStackTop
-          if (genInstruction.curve !== 0 && colorPlateLayerNb > 0) {
-            const sliceH = genInstruction.colorPixelLayerThickness * colorPlateLayerNb
-            ringBottom = i * sliceH
-            ringTop = Math.min(colorStackTop, (i + 1) * sliceH)
-          }
-          if (ringTop > ringBottom) {
-            facets.push(
-              ...emitRingPrism(
-                polygons.silhouettePolygonMm,
-                polygons.maskPolygonMm,
-                ringBottom,
-                ringTop,
-                flatPrismOpts,
-                polyWidthMm,
-              ),
-            )
-          }
-        }
         if (facets.length > 0) {
           zip.file(`${threadName}.stl`, concatFacets(facets))
         }
@@ -249,23 +295,6 @@ export async function buildZip(
       'texture',
       rowChunk,
     )
-
-    // Smooth border ring at the top of the model. Z range:
-    // [colorStackTop, colorStackTop + borderHeightMm]. The interior texture
-    // peaks (luminance-driven) live in [colorStackTop, colorStackTop + texHeight]
-    // and may rise above OR below this ring depending on borderHeightMm.
-    if (borderHeight > 0 && polygons.silhouettePolygonMm.length > 0) {
-      facets.push(
-        ...emitRingPrism(
-          polygons.silhouettePolygonMm,
-          polygons.maskPolygonMm,
-          colorStackTop,
-          colorStackTop + borderHeight,
-          texturePrismOpts,
-          polyWidthMm,
-        ),
-      )
-    }
 
     zip.file(`${threadName}.stl`, concatFacets(facets))
   }

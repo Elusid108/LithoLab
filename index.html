@@ -271,28 +271,26 @@
             <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name..." />
           </div>
 
-          <div class="input-group">
-            <label>White Border Width (mm)</label>
-            <input type="range" id="borderInput" min="0" max="25" step="0.1" value="3" oninput="updateBorderDisplay(this.value)" />
-            <div style="text-align: right; font-size: 11px; color: #888" id="borderVal">3mm</div>
-          </div>
-
-          <div class="input-group">
-            <label>Border Height (mm)</label>
-            <p style="font-size: 11px; color: #888; margin: 0 0 4px 0">Z-thickness of the white border ring (independent of width).</p>
-            <input type="range" id="borderHeightInput" min="0.3" max="3.0" step="0.1" value="1.0" oninput="updateBorderHeightDisplay(this.value)" />
-            <div style="text-align: right; font-size: 11px; color: #888" id="borderHeightVal">1.0mm</div>
-          </div>
-
-          <div class="input-group">
-            <label>Pixel size (mm)</label>
-            <p style="font-size: 11px; color: #888; margin: 0 0 4px 0">Smaller = finer detail, larger files. 0.2 mm is a good default.</p>
-            <input type="range" id="pixelSizeInput" min="0.1" max="2" step="0.1" value="0.2" oninput="updatePixelSizeDisplay(this.value)" />
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px">
-              <span style="font-size: 11px; color: #888" id="pixelSizeVal">0.2 mm</span>
-              <span style="font-size: 11px; color: #888" id="exportGridVal">Export grid: 500 × 500 px</span>
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">White border width (mm)</span>
+              <input type="number" id="inpBorderWidth" class="dim-input" step="0.01" min="0" value="3" onchange="onBorderWidthChange()" />
+            </div>
+            <div class="dim-group">
+              <span class="dim-label">Border height (mm)</span>
+              <input type="number" id="inpBorderHeight" class="dim-input" step="0.01" min="0" value="1" onchange="onBorderHeightChange()" />
             </div>
           </div>
+          <p style="font-size: 11px; color: #888; margin: -4px 0 8px 0">Z-thickness of the white border ring (independent of width).</p>
+
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">Pixel size (mm)</span>
+              <input type="number" id="inpPixelSize" class="dim-input" step="0.01" min="0.01" value="0.2" onchange="onPixelSizeChange()" />
+            </div>
+          </div>
+          <p style="font-size: 11px; color: #888; margin: -4px 0 4px 0">Smaller = finer detail, larger files. 0.2 mm is a good default.</p>
+          <div style="text-align: right; font-size: 11px; color: #888; margin-bottom: 8px" id="exportGridVal">Export grid: 500 × 500 px</div>
 
           <div class="settings-box">
             <div class="setting-row"><span>First Layer (White)</span> <span class="setting-val">0.2mm</span></div>
