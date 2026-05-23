@@ -273,8 +273,15 @@
 
           <div class="input-group">
             <label>White Border Width (mm)</label>
-            <input type="range" id="borderInput" min="0" max="10" step="0.5" value="3" oninput="updateBorderDisplay(this.value)" />
+            <input type="range" id="borderInput" min="0" max="25" step="0.1" value="3" oninput="updateBorderDisplay(this.value)" />
             <div style="text-align: right; font-size: 11px; color: #888" id="borderVal">3mm</div>
+          </div>
+
+          <div class="input-group">
+            <label>Border Height (mm)</label>
+            <p style="font-size: 11px; color: #888; margin: 0 0 4px 0">Z-thickness of the white border ring (independent of width).</p>
+            <input type="range" id="borderHeightInput" min="0.3" max="3.0" step="0.1" value="1.0" oninput="updateBorderHeightDisplay(this.value)" />
+            <div style="text-align: right; font-size: 11px; color: #888" id="borderHeightVal">1.0mm</div>
           </div>
 
           <div class="input-group">
@@ -388,17 +395,9 @@
 
         <!-- OUTPUTS -->
         <div class="output-section">
-          <!-- Large Composite Preview -->
-          <div class="composite-preview-container">
-            <h4>Composite Preview (With Border)</h4>
-            <canvas id="refCanvas"></canvas>
-          </div>
-
           <div class="preview-grid">
-            <div class="channel-card"><h4>Cyan (Thickness)</h4><canvas id="cCanvas"></canvas></div>
-            <div class="channel-card"><h4>Magenta (Thickness)</h4><canvas id="mCanvas"></canvas></div>
-            <div class="channel-card"><h4>Yellow (Thickness)</h4><canvas id="yCanvas"></canvas></div>
-            <div class="channel-card"><h4>White (Base+Top)</h4><canvas id="wCanvas"></canvas></div>
+            <div class="channel-card"><h4>Combined Color Preview</h4><canvas id="colorPreviewCanvas"></canvas></div>
+            <div class="channel-card"><h4>Texture Preview</h4><canvas id="texturePreviewCanvas"></canvas></div>
           </div>
         </div>
       </div>

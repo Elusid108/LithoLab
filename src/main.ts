@@ -2,6 +2,7 @@ import './style.css'
 import {
   ColorDistanceComputation,
   createDefaultGenInstruction,
+  DEFAULT_VALUE_BORDER_HEIGHT_MM,
   DEFAULT_VALUE_COLOR_LAYER_NUMBER,
   DEFAULT_VALUE_COLOR_PIXEL_LAYER_THICKNESS,
   DEFAULT_VALUE_COLOR_PIXEL_WIDTH,
@@ -9,7 +10,16 @@ import {
   PixelCreationMethod,
   type GenInstruction,
 } from './genInstruction'
-import { generatePlateZip } from './generator/plateGenerator'
+import { buildPreviewImages, generatePlateZip } from './generator/plateGenerator'
+import { Palette } from './palette/palette'
+import {
+  extractMaskPolygons,
+  offsetPolygonSet,
+  polygonBounds,
+  polygonSetToPath2D,
+  transformPolygonSet,
+  type PolygonSet,
+} from './util/maskPolygon'
 import defaultPalette from '../palette/CMYK-0.10mm.json' with { type: 'json' }
 import {
   addColorFromPicker,
@@ -529,7 +539,11 @@ interface MaskLayer {
   rot: number
   loaded: boolean
   aspect: number
-  alphaCanvas: HTMLCanvasElement | null
+  /** Vector mask polygon in trimmed source-image space (0..trimW, 0..trimH). */
+  polygon: PolygonSet | null
+  /** Width/height (in source pixels) of the trimmed mask bounding box. */
+  trimW: number
+  trimH: number
   isGenerated: boolean
 }
 
@@ -543,24 +557,20 @@ interface LayerPose {
 
 interface LayerCacheEntry extends LayerPose {}
 
-interface PixelBounds {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-interface PixelData {
-  width: number
-  height: number
-  c: Uint8Array
-  m: Uint8Array
-  y: Uint8Array
-  w: Uint8Array
-  mask: Uint8Array
-  interior: Uint8Array
-  maskBounds: { width: number }
-  bounds: PixelBounds
+/**
+ * Cached output of generateLayers() consumed by exportDownload().
+ * All polygons are in millimeters with origin at the silhouette bounding-box top-left.
+ */
+interface GeneratedPreviewData {
+  /** Photo composited over the white border ring, transparent outside silhouette. */
+  rectifiedComposite: HTMLCanvasElement
+  /** Width/height of the rectifiedComposite in millimeters. */
+  widthMm: number
+  heightMm: number
+  /** Mask polygon (interior of the lithophane) in mm. */
+  maskPolygonMm: PolygonSet
+  /** Silhouette polygon (mask offset by border XY) in mm. Defines the printed outline. */
+  silhouettePolygonMm: PolygonSet
 }
 
 interface LayerHistoryEntry {
@@ -583,10 +593,11 @@ interface AppState {
     pixelStep: number
     border: number
     pixelSizeMm: number
+    borderHeightMm: number
   }
   photo: PhotoLayer
   mask: MaskLayer
-  pixelData: PixelData | null
+  pixelData: GeneratedPreviewData | null
   prompts: { photo: string; mask: string }
   history: { photo: LayerHistoryEntry[]; mask: LayerHistoryEntry[] }
   lastGeneratedPhotoName: string | null
@@ -628,7 +639,14 @@ const state: AppState = {
   isDragging: false,
   dragAction: null,
   dragStart: { x: 0, y: 0 },
-  export: { width: 100, height: 100, pixelStep: 2, border: 3, pixelSizeMm: 0.2 },
+  export: {
+    width: 100,
+    height: 100,
+    pixelStep: 2,
+    border: 3,
+    pixelSizeMm: 0.2,
+    borderHeightMm: DEFAULT_VALUE_BORDER_HEIGHT_MM,
+  },
   photo: {
     img: null,
     x: 0,
@@ -648,7 +666,9 @@ const state: AppState = {
     rot: 0,
     loaded: false,
     aspect: 1,
-    alphaCanvas: null,
+    polygon: null,
+    trimW: 0,
+    trimH: 0,
     isGenerated: false,
   },
   pixelData: null,
@@ -735,61 +755,61 @@ function cacheCurrentLayerState(type: ActiveLayer): void {
   }
 }
 
-function createSmartAlphaMask(img: HTMLImageElement): { canvas: HTMLCanvasElement; w: number; h: number } {
+interface MaskExtraction {
+  polygon: PolygonSet
+  trimW: number
+  trimH: number
+}
+
+/**
+ * Extract a smooth vector polygon from the source mask image.
+ * The polygon is luminance-thresholded marching-squares output passed through
+ * Chaikin smoothing, then translated so its bounding box starts at (0, 0).
+ * The returned `trimW`/`trimH` describe the polygon's bounding box in
+ * source-image pixel units and serve as the mask layer's "natural" aspect.
+ */
+function extractMaskFromImage(img: HTMLImageElement): MaskExtraction {
   const tempC = document.createElement('canvas')
   tempC.width = img.width
   tempC.height = img.height
   const tCtx = tempC.getContext('2d')
-  if (!tCtx) return { canvas: tempC, w: img.width, h: img.height }
-  tCtx.drawImage(img, 0, 0)
-  const id = tCtx.getImageData(0, 0, tempC.width, tempC.height)
-  const d = id.data
-
-  let minX = tempC.width
-  let minY = tempC.height
-  let maxX = 0
-  let maxY = 0
-  let foundAny = false
-
-  for (let y = 0; y < tempC.height; y++) {
-    for (let x = 0; x < tempC.width; x++) {
-      const i = (y * tempC.width + x) * 4
-      const lum = 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!
-      if (lum > 128) {
-        d[i] = 255
-        d[i + 1] = 255
-        d[i + 2] = 255
-        d[i + 3] = 255
-        if (x < minX) minX = x
-        if (x > maxX) maxX = x
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
-        foundAny = true
-      } else {
-        d[i + 3] = 0
-      }
+  if (!tCtx) {
+    return {
+      polygon: [
+        [
+          { x: 0, y: 0 },
+          { x: img.width, y: 0 },
+          { x: img.width, y: img.height },
+          { x: 0, y: img.height },
+        ],
+      ],
+      trimW: img.width,
+      trimH: img.height,
     }
   }
+  tCtx.drawImage(img, 0, 0)
+  const id = tCtx.getImageData(0, 0, tempC.width, tempC.height)
 
-  if (!foundAny) {
-    minX = 0
-    minY = 0
-    maxX = tempC.width
-    maxY = tempC.height
+  let polygons = extractMaskPolygons(id, { threshold: 128, smoothIters: 3, minLoopArea: 6 })
+
+  if (polygons.length === 0) {
+    polygons = [
+      [
+        { x: 0, y: 0 },
+        { x: img.width, y: 0 },
+        { x: img.width, y: img.height },
+        { x: 0, y: img.height },
+      ],
+    ]
   }
-  const trimW = maxX - minX
-  const trimH = maxY - minY
 
-  const finalC = document.createElement('canvas')
-  finalC.width = trimW
-  finalC.height = trimH
-  const fCtx = finalC.getContext('2d')
-  if (!fCtx) return { canvas: finalC, w: trimW, h: trimH }
-
-  tCtx.putImageData(id, 0, 0)
-  fCtx.drawImage(tempC, minX, minY, trimW, trimH, 0, 0, trimW, trimH)
-
-  return { canvas: finalC, w: trimW, h: trimH }
+  const b = polygonBounds(polygons)
+  const trimW = Math.max(1, b.maxX - b.minX)
+  const trimH = Math.max(1, b.maxY - b.minY)
+  const normalized: PolygonSet = polygons.map((loop) =>
+    loop.map((p) => ({ x: p.x - b.minX, y: p.y - b.minY })),
+  )
+  return { polygon: normalized, trimW, trimH }
 }
 
 function handleImageLoad(
@@ -808,9 +828,11 @@ function handleImageLoad(
     layer.img = img
     layer.loaded = true
     layer.isGenerated = isGenerated
-    const trimmed = createSmartAlphaMask(img)
-    layer.alphaCanvas = trimmed.canvas
-    layer.aspect = trimmed.w / trimmed.h
+    const extracted = extractMaskFromImage(img)
+    layer.polygon = extracted.polygon
+    layer.trimW = extracted.trimW
+    layer.trimH = extracted.trimH
+    layer.aspect = extracted.trimW / extracted.trimH
 
     const key = cacheKeyFromSrc(img.src)
     const cached = state.layerCache[key]
@@ -821,8 +843,8 @@ function handleImageLoad(
       layer.h = cached.h
       layer.rot = cached.rot
     } else {
-      layer.w = trimmed.w
-      layer.h = trimmed.h
+      layer.w = extracted.trimW
+      layer.h = extracted.trimH
       layer.rot = 0
       const viewScale = Math.min((cvs.width * 0.5) / layer.w, (cvs.height * 0.5) / layer.h)
       layer.w *= viewScale
@@ -1043,9 +1065,12 @@ function setTransform(layer: PhotoLayer | MaskLayer, c: CanvasRenderingContext2D
 function drawLayer(layer: PhotoLayer | MaskLayer, isMask: boolean, c: CanvasRenderingContext2D): void {
   c.save()
   setTransform(layer, c)
-  const imgToDraw =
-    isMask && 'alphaCanvas' in layer && layer.alphaCanvas ? layer.alphaCanvas : layer.img
-  if (imgToDraw) c.drawImage(imgToDraw, -layer.w / 2, -layer.h / 2, layer.w, layer.h)
+  if (isMask) {
+    // Masks render via Path2D in render() — drawLayer is no-op for them.
+    c.restore()
+    return
+  }
+  if (layer.img) c.drawImage(layer.img, -layer.w / 2, -layer.h / 2, layer.w, layer.h)
   c.restore()
 }
 
@@ -1056,20 +1081,27 @@ function render(showGizmos = true, cIn?: CanvasRenderingContext2D): void {
 
   if (state.photo.loaded) drawLayer(state.photo, false, c)
 
-  if (state.mask.loaded && state.mask.alphaCanvas) {
+  if (state.mask.loaded && state.mask.polygon && state.mask.trimW > 0 && state.mask.trimH > 0) {
     c.save()
     setTransform(state.mask, c)
+    c.translate(-state.mask.w / 2, -state.mask.h / 2)
+    c.scale(state.mask.w / state.mask.trimW, state.mask.h / state.mask.trimH)
 
+    const path = polygonSetToPath2D(state.mask.polygon)
     c.globalCompositeOperation = 'destination-in'
-    c.drawImage(state.mask.alphaCanvas, -state.mask.w / 2, -state.mask.h / 2, state.mask.w, state.mask.h)
+    c.fillStyle = '#ffffff'
+    c.fill(path, 'evenodd')
     c.globalCompositeOperation = 'source-over'
+    c.restore()
 
     if (showGizmos) {
-      c.strokeStyle = 'rgba(255,255,255,0.3)'
+      c.save()
+      setTransform(state.mask, c)
+      c.strokeStyle = 'rgba(255,255,255,0.35)'
       c.lineWidth = 1
       c.strokeRect(-state.mask.w / 2, -state.mask.h / 2, state.mask.w, state.mask.h)
+      c.restore()
     }
-    c.restore()
   }
 
   if (!showGizmos) return
@@ -1161,272 +1193,325 @@ function updateExportGridReadout(): void {
   gridEl.textContent = `Export grid: ${exportW} × ${exportH} px`
 }
 
-function setPxRGB(imgData: ImageData, i: number, r: number, g: number, b: number): void {
-  imgData.data[i] = r
-  imgData.data[i + 1] = g
-  imgData.data[i + 2] = b
-  imgData.data[i + 3] = 255
+// ---------------------------------------------------------------------------
+// 2D affine helpers (used to compose photo / mask / mm-space transforms)
+// ---------------------------------------------------------------------------
+
+interface Affine {
+  a: number
+  b: number
+  c: number
+  d: number
+  tx: number
+  ty: number
 }
 
-function channelArray(pd: PixelData, ch: 'c' | 'm' | 'y' | 'w'): Uint8Array {
-  switch (ch) {
-    case 'c':
-      return pd.c
-    case 'm':
-      return pd.m
-    case 'y':
-      return pd.y
-    default:
-      return pd.w
+const IDENTITY: Affine = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+
+function translateAffine(tx: number, ty: number): Affine {
+  return { a: 1, b: 0, c: 0, d: 1, tx, ty }
+}
+
+function scaleAffine(sx: number, sy: number): Affine {
+  return { a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0 }
+}
+
+function rotateAffine(theta: number): Affine {
+  return {
+    a: Math.cos(theta),
+    b: Math.sin(theta),
+    c: -Math.sin(theta),
+    d: Math.cos(theta),
+    tx: 0,
+    ty: 0,
   }
 }
 
-function generateLayers(): void {
+function multiplyAffine(m1: Affine, m2: Affine): Affine {
+  return {
+    a: m1.a * m2.a + m1.c * m2.b,
+    b: m1.b * m2.a + m1.d * m2.b,
+    c: m1.a * m2.c + m1.c * m2.d,
+    d: m1.b * m2.c + m1.d * m2.d,
+    tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
+    ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty,
+  }
+}
+
+function invertAffine(m: Affine): Affine {
+  const det = m.a * m.d - m.b * m.c
+  if (det === 0) return IDENTITY
+  return {
+    a: m.d / det,
+    b: -m.b / det,
+    c: -m.c / det,
+    d: m.a / det,
+    tx: (m.c * m.ty - m.d * m.tx) / det,
+    ty: (m.b * m.tx - m.a * m.ty) / det,
+  }
+}
+
+/** Affine that maps a layer's source pixel space onto editor canvas pixels. */
+function layerEditorAffine(
+  layer: { x: number; y: number; w: number; h: number; rot: number },
+  srcW: number,
+  srcH: number,
+): Affine {
+  if (srcW === 0 || srcH === 0) return IDENTITY
+  let m = scaleAffine(layer.w / srcW, layer.h / srcH)
+  m = multiplyAffine(translateAffine(-layer.w / 2, -layer.h / 2), m)
+  m = multiplyAffine(rotateAffine(layer.rot), m)
+  m = multiplyAffine(translateAffine(layer.x + layer.w / 2, layer.y + layer.h / 2), m)
+  return m
+}
+
+function shiftPolygonSet(set: PolygonSet, dx: number, dy: number): PolygonSet {
+  return set.map((loop) => loop.map((p) => ({ x: p.x + dx, y: p.y + dy })))
+}
+
+function renderImageDataToCanvas(canvasId: string, imageData: ImageData | null): void {
+  const cvs = $(canvasId) as HTMLCanvasElement | null
+  if (!cvs) return
+  if (!imageData || imageData.width === 0 || imageData.height === 0) {
+    cvs.width = 1
+    cvs.height = 1
+    cvs.getContext('2d')?.clearRect(0, 0, 1, 1)
+    return
+  }
+  cvs.width = imageData.width
+  cvs.height = imageData.height
+  cvs.getContext('2d')!.putImageData(imageData, 0, 0)
+}
+
+// ---------------------------------------------------------------------------
+// Build the rectified composite + polygons used by the preview & STL pipelines
+// ---------------------------------------------------------------------------
+
+interface RectifiedScene {
+  composite: HTMLCanvasElement
+  widthMm: number
+  heightMm: number
+  maskPolygonMm: PolygonSet
+  silhouettePolygonMm: PolygonSet
+}
+
+function buildRectifiedScene(): RectifiedScene | null {
+  if (!state.photo.loaded || !state.photo.img) return null
+
+  const borderXY = Math.max(0, state.export.border)
+  const destW = state.export.width
+  const destH = state.export.height
+  if (destW <= 0 || destH <= 0) return null
+
+  // 1. Mask polygon in mm space (covering 0..destW × 0..destH).
+  let maskInitial: PolygonSet
+  if (state.mask.loaded && state.mask.polygon && state.mask.trimW > 0 && state.mask.trimH > 0) {
+    const m: { a: number; b: number; c: number; d: number; tx: number; ty: number } = {
+      a: destW / state.mask.trimW,
+      b: 0,
+      c: 0,
+      d: destH / state.mask.trimH,
+      tx: 0,
+      ty: 0,
+    }
+    maskInitial = transformPolygonSet(state.mask.polygon, m)
+  } else {
+    maskInitial = [
+      [
+        { x: 0, y: 0 },
+        { x: destW, y: 0 },
+        { x: destW, y: destH },
+        { x: 0, y: destH },
+      ],
+    ]
+  }
+
+  // 2. Silhouette = mask polygon offset outward by borderXY.
+  let silhouetteRaw = borderXY > 0 ? offsetPolygonSet(maskInitial, borderXY) : maskInitial
+  if (silhouetteRaw.length === 0) silhouetteRaw = maskInitial
+
+  // 3. Shift both polygons so silhouette top-left lands at (0, 0).
+  const sBounds = polygonBounds(silhouetteRaw)
+  const shiftX = -sBounds.minX
+  const shiftY = -sBounds.minY
+  const maskPolygonMm = shiftPolygonSet(maskInitial, shiftX, shiftY)
+  const silhouettePolygonMm = shiftPolygonSet(silhouetteRaw, shiftX, shiftY)
+  const compositeWidthMm = Math.max(0.001, sBounds.maxX - sBounds.minX)
+  const compositeHeightMm = Math.max(0.001, sBounds.maxY - sBounds.minY)
+
+  // 4. Allocate canvas at the texture grid resolution (the finest grid used).
+  const pxPerMm = 1 / Math.max(0.01, state.export.pixelSizeMm)
+  const W = Math.max(1, Math.round(compositeWidthMm * pxPerMm))
+  const H = Math.max(1, Math.round(compositeHeightMm * pxPerMm))
+  const composite = document.createElement('canvas')
+  composite.width = W
+  composite.height = H
+  const ctx = composite.getContext('2d')
+  if (!ctx) return null
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+
+  // 5. Switch ctx into mm space.
+  ctx.setTransform(W / compositeWidthMm, 0, 0, H / compositeHeightMm, 0, 0)
+
+  // 6. Fill the silhouette with WHITE — this is the border ring that surrounds
+  //    the photo content (the photo overdraws the interior next).
+  const silhouettePath = polygonSetToPath2D(silhouettePolygonMm)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill(silhouettePath, 'evenodd')
+
+  // 7. Clip to the mask polygon and draw the photo at its proper mm position.
+  ctx.save()
+  const maskPath = polygonSetToPath2D(maskPolygonMm)
+  ctx.clip(maskPath, 'evenodd')
+
+  const photoSrcToEditor = layerEditorAffine(
+    state.photo,
+    state.photo.img.width,
+    state.photo.img.height,
+  )
+  let photoSrcToMm: Affine
+  if (state.mask.loaded && state.mask.trimW > 0 && state.mask.trimH > 0) {
+    const maskSrcToEditor = layerEditorAffine(state.mask, state.mask.trimW, state.mask.trimH)
+    const editorToMaskSrc = invertAffine(maskSrcToEditor)
+    const maskSrcToMm: Affine = {
+      a: destW / state.mask.trimW,
+      b: 0,
+      c: 0,
+      d: destH / state.mask.trimH,
+      tx: shiftX,
+      ty: shiftY,
+    }
+    photoSrcToMm = multiplyAffine(multiplyAffine(maskSrcToMm, editorToMaskSrc), photoSrcToEditor)
+  } else {
+    // Mask-less: stretch photo to fill the silhouette.
+    photoSrcToMm = {
+      a: destW / state.photo.img.width,
+      b: 0,
+      c: 0,
+      d: destH / state.photo.img.height,
+      tx: shiftX,
+      ty: shiftY,
+    }
+  }
+
+  ctx.transform(
+    photoSrcToMm.a,
+    photoSrcToMm.b,
+    photoSrcToMm.c,
+    photoSrcToMm.d,
+    photoSrcToMm.tx,
+    photoSrcToMm.ty,
+  )
+  ctx.drawImage(state.photo.img, 0, 0)
+  ctx.restore()
+
+  return {
+    composite,
+    widthMm: compositeWidthMm,
+    heightMm: compositeHeightMm,
+    maskPolygonMm,
+    silhouettePolygonMm,
+  }
+}
+
+async function generateLayers(): Promise<void> {
   if (!state.photo.loaded) {
     void window.alert('Please upload a Photo first.')
     return
   }
-
-  const cvs = requireCanvas()
-  const c = requireCtx()
-  render(false, c)
-
-  const borderMm = parseFloat(($('borderInput') as HTMLInputElement | null)?.value ?? '') || 0
+  const borderMm =
+    parseFloat(($('borderInput') as HTMLInputElement | null)?.value ?? '') || 0
   state.export.border = borderMm
-  const padPx = borderMm > 0 ? Math.ceil((borderMm / state.export.width) * cvs.width) + 15 : 0
 
-  const tempCvs = document.createElement('canvas')
-  tempCvs.width = cvs.width + padPx * 2
-  tempCvs.height = cvs.height + padPx * 2
-  const tempCtx = tempCvs.getContext('2d')
-  if (!tempCtx) {
-    void window.alert('Could not create off-screen canvas context.')
-    render(true, c)
+  ui.show()
+  ui.update(5, 'Building composite…', '')
+
+  // Defer to the next frame so the spinner can render before heavy work runs.
+  await new Promise((r) => requestAnimationFrame(r))
+
+  const scene = buildRectifiedScene()
+  if (!scene) {
+    ui.hide()
+    invalidatePreviews()
+    void window.alert('Could not build composite. Check the photo/mask.')
     return
   }
-  tempCtx.drawImage(cvs, padPx, padPx)
 
-  const w = tempCvs.width
-  const h = tempCvs.height
-  const data = tempCtx.getImageData(0, 0, w, h).data
-
-  const totalPixels = w * h
-  state.export.pixelStep = totalPixels > 2_000_000 ? 3 : 2
-
-  let minX = w
-  let maxX = 0
-  let minY = h
-  let maxY = 0
-
-  const pixelData: PixelData = {
-    width: w,
-    height: h,
-    c: new Uint8Array(w * h),
-    m: new Uint8Array(w * h),
-    y: new Uint8Array(w * h),
-    w: new Uint8Array(w * h),
-    mask: new Uint8Array(w * h),
-    interior: new Uint8Array(w * h),
-    maskBounds: { width: w },
-    bounds: { x: 0, y: 0, w: 0, h: 0 },
-  }
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4
-      const p = y * w + x
-
-      if (data[i + 3]! > 10) {
-        pixelData.mask[p] = 1
-        pixelData.interior[p] = 1
-        if (x < minX) minX = x
-        if (x > maxX) maxX = x
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
-
-        const r = data[i]!
-        const g = data[i + 1]!
-        const b = data[i + 2]!
-        pixelData.c[p] = 255 - r
-        pixelData.m[p] = 255 - g
-        pixelData.y[p] = 255 - b
-        pixelData.w[p] = 255 - (r * 0.299 + g * 0.587 + b * 0.114)
-      } else {
-        pixelData.mask[p] = 0
-      }
-    }
-  }
-
-  let bounds: PixelBounds = { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
-  pixelData.maskBounds.width = bounds.w
-
-  if (state.export.border > 0 && state.mask.loaded) {
-    const pxPerMM = bounds.w / state.export.width
-    const borderPx = state.export.border * pxPerMM
-
-    const dist = new Float32Array(w * h).fill(999_999)
-
-    for (let p = 0; p < w * h; p++) {
-      if (pixelData.mask[p] === 1) dist[p] = 0
-    }
-
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const idx = y * w + x
-        if (dist[idx]! > 0) {
-          let d = dist[idx]!
-          if (x > 0) d = Math.min(d, dist[idx - 1]! + 1) // Left
-          if (y > 0) {
-            d = Math.min(d, dist[idx - w]! + 1) // Top
-            if (x > 0) d = Math.min(d, dist[idx - w - 1]! + Math.SQRT2) // Top-Left
-            if (x < w - 1) d = Math.min(d, dist[idx - w + 1]! + Math.SQRT2) // Top-Right
-          }
-          dist[idx] = d
-        }
-      }
-    }
-
-    for (let y = h - 1; y >= 0; y--) {
-      for (let x = w - 1; x >= 0; x--) {
-        const idx = y * w + x
-        if (dist[idx]! > 0) {
-          let d = dist[idx]!
-          if (x < w - 1) d = Math.min(d, dist[idx + 1]! + 1) // Right
-          if (y < h - 1) {
-            d = Math.min(d, dist[idx + w]! + 1) // Bottom
-            if (x < w - 1) d = Math.min(d, dist[idx + w + 1]! + Math.SQRT2) // Bottom-Right
-            if (x > 0) d = Math.min(d, dist[idx + w - 1]! + Math.SQRT2) // Bottom-Left
-          }
-          dist[idx] = d
-        }
-
-        if (dist[idx]! <= borderPx && dist[idx]! > 0) {
-          pixelData.mask[idx] = 1
-          pixelData.c[idx] = 0
-          pixelData.m[idx] = 0
-          pixelData.y[idx] = 0
-          pixelData.w[idx] = 255
-
-          const x_ = x
-          const y_ = y
-          if (x_ < minX) minX = x_
-          if (x_ > maxX) maxX = x_
-          if (y_ < minY) minY = y_
-          if (y_ > maxY) maxY = y_
-        }
-      }
-    }
-  } else if (state.export.border > 0) {
-    const pxPerMM = bounds.w / state.export.width
-    const borderPx = state.export.border * pxPerMM
-
-    const bx = Math.floor(bounds.x - borderPx)
-    const by = Math.floor(bounds.y - borderPx)
-    const bw = Math.floor(bounds.w + borderPx * 2)
-    const bh = Math.floor(bounds.h + borderPx * 2)
-
-    for (let y = by; y < by + bh; y++) {
-      for (let x = bx; x < bx + bw; x++) {
-        if (x >= 0 && x < w && y >= 0 && y < h) {
-          const idx = y * w + x
-          if (pixelData.mask[idx] === 0) {
-            pixelData.mask[idx] = 1
-            pixelData.c[idx] = 0
-            pixelData.m[idx] = 0
-            pixelData.y[idx] = 0
-            pixelData.w[idx] = 255
-
-            if (x < minX) minX = x
-            if (x > maxX) maxX = x
-            if (y < minY) minY = y
-            if (y > maxY) maxY = y
-          }
-        }
-      }
-    }
-  }
-
-  bounds = { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
-  if (bounds.w <= 0 || bounds.h <= 0) {
-    render(true, c)
+  const gen = buildGenInstructionFromState()
+  gen.destImageWidth = scene.widthMm
+  gen.destImageHeight = scene.heightMm
+  if (gen.destImageWidth <= 0 || gen.destImageHeight <= 0) {
+    ui.hide()
     invalidatePreviews()
     void window.alert('No visible content on the canvas.')
     return
   }
 
-  pixelData.bounds = bounds
-  state.pixelData = pixelData
+  ui.update(25, 'Loading palette…', '')
+  let palette: Palette
+  try {
+    palette = new Palette(JSON.stringify(currentPaletteJson), gen)
+  } catch (e) {
+    ui.hide()
+    console.error(e)
+    void window.alert(e instanceof Error ? e.message : String(e))
+    return
+  }
+
+  if (
+    gen.pixelCreationMethod === PixelCreationMethod.FULL &&
+    gen.colorNumber !== 0
+  ) {
+    palette.restrictFullColors(scene.composite, gen.colorNumber)
+  }
+
+  ui.update(45, 'Quantizing colors…', '')
+  let previews: { colorImage: ImageData | null; textureImage: ImageData | null }
+  try {
+    previews = await buildPreviewImages(
+      scene.composite,
+      { maskPolygonMm: scene.maskPolygonMm, silhouettePolygonMm: scene.silhouettePolygonMm },
+      palette,
+      gen,
+      'preview',
+    )
+  } catch (e) {
+    ui.hide()
+    console.error(e)
+    void window.alert(e instanceof Error ? e.message : String(e))
+    return
+  }
+
+  renderImageDataToCanvas('colorPreviewCanvas', previews.colorImage)
+  renderImageDataToCanvas('texturePreviewCanvas', previews.textureImage)
+
+  state.pixelData = {
+    rectifiedComposite: scene.composite,
+    widthMm: scene.widthMm,
+    heightMm: scene.heightMm,
+    maskPolygonMm: scene.maskPolygonMm,
+    silhouettePolygonMm: scene.silhouettePolygonMm,
+  }
   setExportButtonsEnabled(true)
 
-  const renderPreview = (canvasId: string, dataChannel: 'c' | 'm' | 'y' | 'w'): void => {
-    const prevCvs = $(canvasId) as HTMLCanvasElement | null
-    const prevCtx = prevCvs?.getContext('2d')
-    if (!prevCvs || !prevCtx) return
-    prevCvs.width = bounds.w
-    prevCvs.height = bounds.h
-    const imgData = prevCtx.createImageData(bounds.w, bounds.h)
-    const chArr = channelArray(pixelData, dataChannel)
-    const useInterior = dataChannel === 'c' || dataChannel === 'm' || dataChannel === 'y'
-    const vis = useInterior ? pixelData.interior : pixelData.mask
-
-    for (let y = 0; y < bounds.h; y++) {
-      for (let x = 0; x < bounds.w; x++) {
-        const srcIdx = (y + bounds.y) * w + (x + bounds.x)
-        const dstIdx = (y * bounds.w + x) * 4
-
-        if (srcIdx >= 0 && srcIdx < w * h && vis[srcIdx] === 1) {
-          const val = chArr[srcIdx]!
-          if (dataChannel === 'c') setPxRGB(imgData, dstIdx, 255 - val, 255, 255)
-          else if (dataChannel === 'm') setPxRGB(imgData, dstIdx, 255, 255 - val, 255)
-          else if (dataChannel === 'y') setPxRGB(imgData, dstIdx, 255, 255, 255 - val)
-          else setPxRGB(imgData, dstIdx, val, val, val)
-        } else {
-          imgData.data[dstIdx + 3] = 0
-        }
-      }
-    }
-    prevCtx.putImageData(imgData, 0, 0)
-  }
-
-  for (const k of ['c', 'm', 'y', 'w'] as const) {
-    renderPreview(`${k}Canvas`, k)
-  }
-
-  const refCvs = $('refCanvas') as HTMLCanvasElement | null
-  const refCtx = refCvs?.getContext('2d')
-  if (refCvs && refCtx) {
-    refCvs.width = bounds.w
-    refCvs.height = bounds.h
-    const compData = refCtx.createImageData(bounds.w, bounds.h)
-    for (let y = 0; y < bounds.h; y++) {
-      for (let x = 0; x < bounds.w; x++) {
-        const srcIdx = (y + bounds.y) * w + (x + bounds.x)
-        const dstIdx = (y * bounds.w + x) * 4
-
-        if (srcIdx >= 0 && srcIdx < w * h && pixelData.mask[srcIdx] === 1) {
-          const rr = 255 - pixelData.c[srcIdx]!
-          const gg = 255 - pixelData.m[srcIdx]!
-          const bb = 255 - pixelData.y[srcIdx]!
-          compData.data[dstIdx] = rr
-          compData.data[dstIdx + 1] = gg
-          compData.data[dstIdx + 2] = bb
-          compData.data[dstIdx + 3] = 255
-        } else {
-          compData.data[dstIdx + 3] = 0
-        }
-      }
-    }
-    refCtx.putImageData(compData, 0, 0)
-  }
-
-  render(true, c)
+  ui.update(100, 'Done', '')
+  ui.hide()
 }
 
 function updateBorderDisplay(val: string): void {
   const borderVal = $('borderVal')
   if (borderVal) borderVal.textContent = `${val}mm`
   state.export.border = parseFloat(val)
-  if (state.pixelData) generateLayers()
+  if (state.pixelData) void generateLayers()
+}
+
+function updateBorderHeightDisplay(val: string): void {
+  const el = $('borderHeightVal')
+  const v = parseFloat(val)
+  if (el) el.textContent = `${v.toFixed(1)}mm`
+  state.export.borderHeightMm = v
+  // Border height only affects STL geometry — no need to rerun the previews.
 }
 
 function updatePixelSizeDisplay(val: string): void {
@@ -1435,7 +1520,7 @@ function updatePixelSizeDisplay(val: string): void {
   const el = $('pixelSizeVal')
   if (el) el.textContent = `${v} mm`
   updateExportGridReadout()
-  if (state.pixelData) generateLayers()
+  if (state.pixelData) void generateLayers()
 }
 
 function readInputFloat(id: string, fallback: number): number {
@@ -1467,6 +1552,7 @@ function buildGenInstructionFromState(): GenInstruction {
   )
   g.colorPixelLayerNumber = readInputInt('inpLayerCount', DEFAULT_VALUE_COLOR_LAYER_NUMBER)
   g.colorNumber = Math.max(0, readInputInt('inpMaxColors', 0))
+  g.borderHeightMm = state.export.borderHeightMm
 
   const modeSel = $('selPixelMode') as HTMLSelectElement | null
   g.pixelCreationMethod =
@@ -1481,56 +1567,6 @@ function buildGenInstructionFromState(): GenInstruction {
       : ColorDistanceComputation.CIELab
 
   return g
-}
-
-function exportCompositePngBlob(): Promise<Blob | null> {
-  const pd = state.pixelData
-  const bounds = pd?.bounds
-  if (!pd || !bounds || bounds.w <= 0 || bounds.h <= 0) {
-    return Promise.resolve(null)
-  }
-  const w = pd.width
-  const h = pd.height
-  const canvas = document.createElement('canvas')
-  canvas.width = bounds.w
-  canvas.height = bounds.h
-  const xctx = canvas.getContext('2d')
-  if (!xctx) return Promise.resolve(null)
-  const imgData = xctx.createImageData(bounds.w, bounds.h)
-  for (let y = 0; y < bounds.h; y++) {
-    for (let x = 0; x < bounds.w; x++) {
-      const srcIdx = (y + bounds.y) * w + (x + bounds.x)
-      const dstIdx = (y * bounds.w + x) * 4
-      if (srcIdx >= 0 && srcIdx < w * h && pd.mask[srcIdx] === 1) {
-        imgData.data[dstIdx] = 255 - pd.c[srcIdx]!
-        imgData.data[dstIdx + 1] = 255 - pd.m[srcIdx]!
-        imgData.data[dstIdx + 2] = 255 - pd.y[srcIdx]!
-        imgData.data[dstIdx + 3] = 255
-      } else {
-        imgData.data[dstIdx + 3] = 0
-      }
-    }
-  }
-  xctx.putImageData(imgData, 0, 0)
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), 'image/png')
-  })
-}
-
-function blobToImage(blob: Blob): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    img.onload = () => {
-      URL.revokeObjectURL(url)
-      resolve(img)
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error('Failed to load image from blob'))
-    }
-    img.src = url
-  })
 }
 
 function checkApiKey(): void {
@@ -1635,7 +1671,9 @@ function clearLayer(type: ActiveLayer): void {
       rot: 0,
       loaded: false,
       aspect: 1,
-      alphaCanvas: null,
+      polygon: null,
+      trimW: 0,
+      trimH: 0,
       isGenerated: false,
     }
     const maskInput = $('maskInput') as HTMLInputElement | null
@@ -2003,25 +2041,25 @@ async function exportDownload(): Promise<void> {
   ui.show()
   ui.update(5, 'Preparing…', '')
   try {
-    const blob = await exportCompositePngBlob()
-    if (!blob) {
-      void window.alert('Could not export composite image.')
-      return
-    }
-    ui.update(12, 'Loading image…', '')
-    const img = await blobToImage(blob)
     const gen = buildGenInstructionFromState()
-    const pdBounds = state.pixelData?.bounds
-    if (pdBounds && pdBounds.w > 0) {
-      gen.destImageHeight = gen.destImageWidth * (pdBounds.h / pdBounds.w)
-    }
+    gen.destImageWidth = state.pixelData.widthMm
+    gen.destImageHeight = state.pixelData.heightMm
     ui.update(18, 'Generating ZIP…', '')
-    const zipBlob = await generatePlateZip(img, JSON.stringify(currentPaletteJson), gen, {
-      onProgress: (p) => {
-        const pct = p.total > 0 ? 18 + Math.round((p.current / p.total) * 77) : 50
-        ui.update(Math.min(96, Math.max(18, pct)), p.phase, '')
+    const zipBlob = await generatePlateZip(
+      state.pixelData.rectifiedComposite,
+      JSON.stringify(currentPaletteJson),
+      gen,
+      {
+        polygons: {
+          maskPolygonMm: state.pixelData.maskPolygonMm,
+          silhouettePolygonMm: state.pixelData.silhouettePolygonMm,
+        },
+        onProgress: (p) => {
+          const pct = p.total > 0 ? 18 + Math.round((p.current / p.total) * 77) : 50
+          ui.update(Math.min(96, Math.max(18, pct)), p.phase, '')
+        },
       },
-    })
+    )
     const fnameInput = $('fileNameInput') as HTMLInputElement | null
     const base =
       (fnameInput?.value || 'Lithophane').replace(/[^a-z0-9]/gi, '_') || 'Lithophane'
@@ -2185,6 +2223,7 @@ function init(): void {
     updateDims,
     updateUnitDisplay,
     updateBorderDisplay,
+    updateBorderHeightDisplay,
     updatePixelSizeDisplay,
     generateLayers,
     exportDownload,

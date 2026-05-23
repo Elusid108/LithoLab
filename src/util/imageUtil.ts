@@ -1,4 +1,5 @@
 import { transparentPixel, type Rgba } from './colorUtil'
+import { rasterizePolygonCoverage, type PolygonSet } from './maskPolygon'
 
 function formatRatio(n: number): string {
   return n.toFixed(2)
@@ -68,6 +69,69 @@ export function hasATransparentPixel(imageData: ImageData): boolean {
     }
   }
   return false
+}
+
+export type PolygonStencilMode = 'preview' | 'stl'
+
+/**
+ * Clip an ImageData by a polygon set. The polygon's coverage is supersampled
+ * at each pixel so the edge ends up anti-aliased.
+ *
+ * - `'preview'` mode: pixels with non-zero coverage keep their RGB and get
+ *   `alpha = coverage` (smooth, anti-aliased edges for the on-screen / PNG
+ *   previews).
+ * - `'stl'` mode: pixels with coverage ≥ 50% get `alpha = 255`, everything
+ *   else is cleared. The cuboid emitters consume this as a binary stencil;
+ *   the smooth outer silhouette is provided by the polygon-prism geometry
+ *   added in stlMaker.ts, which overlaps the half-pixel border cuboids and
+ *   gets unioned by the slicer.
+ */
+export function applyPolygonStencil(
+  target: ImageData,
+  silhouette: PolygonSet,
+  originMmX: number,
+  originMmY: number,
+  pixelMm: number,
+  mode: PolygonStencilMode = 'preview',
+): void {
+  const { width, height, data } = target
+  if (silhouette.length === 0) {
+    for (let i = 0; i < data.length; i += 4) data[i + 3] = 0
+    return
+  }
+  const coverage = rasterizePolygonCoverage(
+    silhouette,
+    width,
+    height,
+    originMmX,
+    originMmY,
+    pixelMm,
+    4,
+  )
+  if (mode === 'stl') {
+    for (let p = 0, i = 0; p < coverage.length; p++, i += 4) {
+      if (coverage[p] < 128) {
+        data[i] = 0
+        data[i + 1] = 0
+        data[i + 2] = 0
+        data[i + 3] = 0
+      } else {
+        data[i + 3] = 255
+      }
+    }
+    return
+  }
+  for (let p = 0, i = 0; p < coverage.length; p++, i += 4) {
+    const cov = coverage[p]
+    if (cov === 0) {
+      data[i] = 0
+      data[i + 1] = 0
+      data[i + 2] = 0
+      data[i + 3] = 0
+    } else {
+      data[i + 3] = cov
+    }
+  }
 }
 
 /** Light mask pixels keep target; dark or fully transparent mask pixels clear target to RGBA 0,0,0,0. */

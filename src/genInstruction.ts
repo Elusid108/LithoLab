@@ -35,6 +35,8 @@ export interface GenInstruction {
   debug: boolean
   lowMemory: boolean
   colorNumber: number
+  /** Z-height (mm) of the white-border ring, independent of border XY width. */
+  borderHeightMm: number
 }
 
 export const DEFAULT_VALUE_PLATE_THICKNESS = 0.2
@@ -52,6 +54,7 @@ export const DEFAULT_VALUE_ROW_THREAD_TIMEOUT = 120
 export const DEFAULT_VALUE_COLOR_LAYER = true
 export const DEFAULT_VALUE_TEXTURE_LAYER = true
 export const DEFAULT_VALUE_CURVE = 0
+export const DEFAULT_VALUE_BORDER_HEIGHT_MM = 1.0
 
 export function createDefaultGenInstruction(): GenInstruction {
   return {
@@ -76,5 +79,6 @@ export function createDefaultGenInstruction(): GenInstruction {
     debug: false,
     lowMemory: false,
     colorNumber: 0,
+    borderHeightMm: DEFAULT_VALUE_BORDER_HEIGHT_MM,
   }
 }
