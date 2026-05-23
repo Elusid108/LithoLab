@@ -11,8 +11,26 @@ import {
 } from './genInstruction'
 import { generatePlateZip } from './generator/plateGenerator'
 import defaultPalette from '../palette/CMYK-0.10mm.json' with { type: 'json' }
+import {
+  addColorFromPicker,
+  closePaletteManager,
+  exportPaletteFile,
+  initPaletteManager,
+  loadStoredPalette,
+  openPaletteManager,
+  resetPaletteToDefault,
+  saveCustomColor,
+  showPaletteCustomView,
+  showPaletteMainView,
+  showPalettePickerView,
+  togglePaletteEntry,
+  triggerPaletteImport,
+  type PaletteJson,
+} from './palette/paletteManager'
 
-let currentPaletteJson: unknown = defaultPalette
+let currentPaletteJson: PaletteJson = loadStoredPalette(
+  JSON.parse(JSON.stringify(defaultPalette)) as PaletteJson,
+)
 
 interface PalettePreviewEntry {
   hexKey: string
@@ -93,36 +111,21 @@ function setPaletteLoadedLabel(text: string): void {
   if (el) el.textContent = text
 }
 
-function initPalette(): void {
-  setPaletteLoadedLabel('')
+function refreshInlinePalette(): void {
   renderPalettePreview(parsePaletteForPreview(currentPaletteJson))
 }
 
-function attachPaletteInput(): void {
-  const el = $('paletteInput') as HTMLInputElement | null
-  if (!el) return
-  el.addEventListener('change', (e) => {
-    const input = e.target as HTMLInputElement
-    const file = input.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = typeof reader.result === 'string' ? reader.result : ''
-      try {
-        const parsed: unknown = JSON.parse(text)
-        currentPaletteJson = parsed
-        setPaletteLoadedLabel(`Loaded: ${file.name}`)
-        renderPalettePreview(parsePaletteForPreview(currentPaletteJson))
-      } catch {
-        void window.alert('Invalid palette JSON. Reverted to default palette.')
-        currentPaletteJson = defaultPalette
-        setPaletteLoadedLabel('')
-        renderPalettePreview(parsePaletteForPreview(currentPaletteJson))
-      }
-      input.value = ''
-    }
-    reader.readAsText(file)
+function initPalette(): void {
+  setPaletteLoadedLabel('')
+  initPaletteManager({
+    getPalette: () => currentPaletteJson,
+    setPalette: (next) => {
+      currentPaletteJson = next
+    },
+    getDefaultPalette: () => defaultPalette as unknown as PaletteJson,
+    onChange: refreshInlinePalette,
   })
+  refreshInlinePalette()
 }
 
 // --- CONFIGURATION (LithoLab script.js) ---
@@ -2147,7 +2150,6 @@ function init(): void {
   }
 
   initPalette()
-  attachPaletteInput()
 
   const photoInput = $('photoInput')
   const maskInput = $('maskInput')
@@ -2187,6 +2189,17 @@ function init(): void {
     generateLayers,
     exportDownload,
     autoNameLithophaneFromPhoto,
+    openPaletteManager,
+    closePaletteManager,
+    showPaletteMainView,
+    showPalettePickerView,
+    showPaletteCustomView,
+    triggerPaletteImport,
+    exportPaletteFile,
+    resetPaletteToDefault,
+    saveCustomColor,
+    togglePaletteEntry,
+    addColorFromPicker,
   })
 }
 

@@ -87,6 +87,84 @@
       </div>
     </div>
 
+    <!-- Palette Manager Overlay -->
+    <div id="paletteOverlay">
+      <div class="palette-box">
+        <!-- Main view: active material tiles -->
+        <div id="paletteViewMain" class="palette-view">
+          <div class="palette-header">
+            <h3 class="palette-title">MATERIAL COLORS</h3>
+            <button type="button" class="palette-close" onclick="closePaletteManager()" title="Close">&times;</button>
+          </div>
+          <p class="palette-help">Hover a tile to remove. Click + to add another color.</p>
+          <div id="materialTilesGrid" class="material-tiles-grid"></div>
+          <div class="palette-footer-actions">
+            <button type="button" class="palette-action-btn" onclick="showPaletteCustomView()">Add Custom Color</button>
+            <button type="button" class="palette-action-btn subtle" onclick="triggerPaletteImport()">Import JSON</button>
+            <button type="button" class="palette-action-btn subtle" onclick="exportPaletteFile()">Export JSON</button>
+            <input type="file" id="paletteImportInput" accept=".json,application/json" hidden />
+          </div>
+        </div>
+
+        <!-- Picker view: choose from available filaments -->
+        <div id="paletteViewPicker" class="palette-view" style="display: none">
+          <div class="palette-header">
+            <button type="button" class="palette-back" onclick="showPaletteMainView()" title="Back">&larr;</button>
+            <h3 class="palette-title">ADD COLOR</h3>
+            <button type="button" class="palette-close" onclick="closePaletteManager()" title="Close">&times;</button>
+          </div>
+          <input type="text" id="paletteSearch" class="text-input" placeholder="Search by name or hex..." style="margin-bottom: 10px" />
+          <div id="paletteAvailableList" class="palette-available-list"></div>
+          <div class="palette-footer-actions">
+            <button type="button" class="palette-action-btn" onclick="showPaletteCustomView()">+ Custom Color</button>
+          </div>
+        </div>
+
+        <!-- Custom color view -->
+        <div id="paletteViewCustom" class="palette-view" style="display: none">
+          <div class="palette-header">
+            <button type="button" class="palette-back" onclick="showPaletteMainView()" title="Back">&larr;</button>
+            <h3 class="palette-title">CUSTOM COLOR</h3>
+            <button type="button" class="palette-close" onclick="closePaletteManager()" title="Close">&times;</button>
+          </div>
+          <p class="palette-help">Enter a hex code or H/S/L values. A 5-layer ramp is generated automatically.</p>
+          <div class="palette-custom-form">
+            <div class="palette-custom-preview">
+              <div id="customColorPreview" class="palette-custom-swatch"></div>
+              <span id="customColorHexLabel" class="palette-custom-hexlabel">#FFFFFF</span>
+            </div>
+            <div class="input-group" style="text-align: left">
+              <label>Name</label>
+              <input type="text" id="customColorName" class="text-input" placeholder="e.g., My Skin Tone" />
+            </div>
+            <div class="input-group" style="text-align: left">
+              <label>Hex</label>
+              <input type="text" id="customColorHex" class="text-input" placeholder="#RRGGBB" maxlength="7" />
+            </div>
+            <div class="dim-row">
+              <div class="dim-group">
+                <span class="dim-label">Hue (0-360)</span>
+                <input type="number" id="customColorH" class="dim-input" min="0" max="360" step="0.1" value="0" />
+              </div>
+              <div class="dim-group">
+                <span class="dim-label">Sat % (0-100)</span>
+                <input type="number" id="customColorS" class="dim-input" min="0" max="100" step="0.1" value="0" />
+              </div>
+              <div class="dim-group">
+                <span class="dim-label">Light % (0-100)</span>
+                <input type="number" id="customColorL" class="dim-input" min="0" max="100" step="0.1" value="50" />
+              </div>
+            </div>
+            <div id="customColorError" class="palette-custom-error"></div>
+          </div>
+          <div class="palette-footer-actions">
+            <button type="button" class="palette-action-btn subtle" onclick="showPaletteMainView()">Cancel</button>
+            <button type="button" class="palette-action-btn primary" onclick="saveCustomColor()">Save Color</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="app-container">
       <!-- SIDEBAR -->
       <div class="sidebar">
@@ -240,7 +318,10 @@
               <div id="paletteSwatches" style="display: flex; flex-wrap: wrap; gap: 4px;"></div>
               <p id="paletteActiveCount" style="font-size: 11px; color: #888; margin: 5px 0 0 0;"></p>
             </div>
-            <input type="file" id="paletteInput" accept=".json,application/json" class="text-input" style="font-size: 11px; padding: 5px; margin-top: 10px" />
+            <div class="palette-actions">
+              <button type="button" class="palette-action-btn" onclick="openPaletteManager()">Manage Palette</button>
+              <button type="button" class="palette-action-btn subtle" onclick="resetPaletteToDefault()">Reset</button>
+            </div>
             <p id="paletteLoadedLabel" style="font-size: 11px; color: #888; margin: 6px 0 0 0"></p>
           </div>
 
