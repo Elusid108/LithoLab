@@ -257,8 +257,6 @@
           </div>
         </div>
 
-        <button class="process-btn" style="margin-bottom: 20px" onclick="generateLayers()">GENERATE PREVIEWS</button>
-
         <!-- Section 3: Settings -->
         <div class="control-section">
           <h3>3. Lithophane Settings</h3>
@@ -269,34 +267,6 @@
               <button class="ai-feature ai-btn-small" onclick="autoNameLithophaneFromPhoto()">✨ Auto Name</button>
             </div>
             <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name..." />
-          </div>
-
-          <div class="dim-row">
-            <div class="dim-group">
-              <span class="dim-label">White border width (mm)</span>
-              <input type="number" id="inpBorderWidth" class="dim-input" step="0.01" min="0" value="3" onchange="onBorderWidthChange()" />
-            </div>
-            <div class="dim-group">
-              <span class="dim-label">Border height (mm)</span>
-              <input type="number" id="inpBorderHeight" class="dim-input" step="0.01" min="0" value="1" onchange="onBorderHeightChange()" />
-            </div>
-          </div>
-          <p style="font-size: 11px; color: #888; margin: -4px 0 8px 0">Z-thickness of the white border ring (independent of width).</p>
-
-          <div class="dim-row">
-            <div class="dim-group">
-              <span class="dim-label">Pixel size (mm)</span>
-              <input type="number" id="inpPixelSize" class="dim-input" step="0.01" min="0.01" value="0.2" onchange="onPixelSizeChange()" />
-            </div>
-          </div>
-          <p style="font-size: 11px; color: #888; margin: -4px 0 4px 0">Smaller = finer detail, larger files. 0.2 mm is a good default.</p>
-          <div style="text-align: right; font-size: 11px; color: #888; margin-bottom: 8px" id="exportGridVal">Export grid: 500 × 500 px</div>
-
-          <div class="settings-box">
-            <div class="setting-row"><span>First Layer (White)</span> <span class="setting-val">0.2mm</span></div>
-            <div class="setting-row"><span>Layer Height</span> <span class="setting-val">0.1mm</span></div>
-            <div class="setting-row"><span>Min Thickness</span> <span class="setting-val">0.8mm</span></div>
-            <div class="setting-row"><span>Max Thickness</span> <span class="setting-val">2.7mm</span></div>
           </div>
 
           <div class="dim-row">
@@ -330,6 +300,34 @@
             <p id="paletteLoadedLabel" style="font-size: 11px; color: #888; margin: 6px 0 0 0"></p>
           </div>
 
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">White border width (mm)</span>
+              <input type="number" id="inpBorderWidth" class="dim-input" step="0.01" min="0" value="3" onchange="onBorderWidthChange()" />
+            </div>
+            <div class="dim-group">
+              <span class="dim-label">Border height (mm)</span>
+              <input type="number" id="inpBorderHeight" class="dim-input" step="0.01" min="0" value="1" onchange="onBorderHeightChange()" />
+            </div>
+          </div>
+          <p style="font-size: 11px; color: #888; margin: -4px 0 8px 0">Z-thickness of the white border ring (independent of width).</p>
+
+          <div class="dim-row">
+            <div class="dim-group">
+              <span class="dim-label">Pixel size (mm)</span>
+              <input type="number" id="inpPixelSize" class="dim-input" step="0.01" min="0.01" value="0.2" onchange="onPixelSizeChange()" />
+            </div>
+          </div>
+          <p style="font-size: 11px; color: #888; margin: -4px 0 4px 0">Smaller = finer detail, larger files. 0.2 mm is a good default.</p>
+          <div style="text-align: right; font-size: 11px; color: #888; margin-bottom: 8px" id="exportGridVal">Export grid: 500 × 500 px</div>
+
+          <div class="settings-box">
+            <div class="setting-row"><span>First Layer (White)</span> <span class="setting-val">0.2mm</span></div>
+            <div class="setting-row"><span>Layer Height</span> <span class="setting-val">0.1mm</span></div>
+            <div class="setting-row"><span>Min Thickness</span> <span class="setting-val">0.8mm</span></div>
+            <div class="setting-row"><span>Max Thickness</span> <span class="setting-val">2.7mm</span></div>
+          </div>
+
           <h3 style="margin: 16px 0 8px 0; font-size: 13px">LithoLab generation</h3>
 
           <div class="dim-row">
@@ -339,7 +337,7 @@
             </div>
             <div class="dim-group">
               <span class="dim-label">Color pixel width (mm)</span>
-              <input type="number" id="inpColorPixelWidth" class="dim-input" step="0.01" value="0.8" />
+              <input type="number" id="inpColorPixelWidth" class="dim-input" step="0.01" value="0.4" />
             </div>
           </div>
 
@@ -379,7 +377,8 @@
           </div>
         </div>
 
-        <div class="export-row" style="display: flex; gap: 10px; flex-wrap: wrap">
+        <div class="export-row" style="display: flex; flex-direction: column; gap: 10px">
+          <button class="process-btn" onclick="generateLayers()">GENERATE PREVIEWS</button>
           <button id="btnDownloadStl" class="process-btn" style="background: #333; color: #888" onclick="exportDownload()" disabled>Download STLs</button>
         </div>
       </div>
