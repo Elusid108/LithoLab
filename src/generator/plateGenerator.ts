@@ -4,6 +4,7 @@ import { Palette } from '../palette/palette'
 import {
   applyPolygonStencil,
   checkRatio,
+  compositeBorderRing,
   convertToBlackAndWhite,
   flipImage,
   getImageDataFromCanvas,
@@ -35,17 +36,16 @@ export interface PreviewImages {
  *  - the `image-color-preview.png` / `image-texture-preview.png` saved into
  *    the exported zip, so the two always match.
  *
- * `sourceImage` is expected to already be the "rectified composite" — the
- * photo placed in mm space with the border ring filled white and everything
- * outside the silhouette transparent. Coordinates inside the image map 1:1
- * to the polygon mm space (origin at top-left, x = mm).
+ * `sourceImage` is the photo-only rectified composite — photo placed in mm
+ * space, clipped to the mask, transparent elsewhere. Coordinates map 1:1 to
+ * polygon mm space (origin at top-left, x = mm).
  *
- * The stencil polygon depends on `stencilMode`:
- *  - `'preview'` (default): clips to the silhouette polygon so the full
- *    visible composite (photo + white border ring) shows in the preview.
- *  - `'stl'`: clips to the mask polygon, removing the border ring from the
- *    raster — the polygon-prism pass in stlMaker.ts provides that border
- *    as smooth vector geometry instead.
+ * Pipeline per layer: resize → lithophane process → mask stencil → (preview
+ * only) fine-vector border composite.
+ *
+ * `stencilMode`:
+ *  - `'preview'`: mask clip + white border ring composited at fine resolution.
+ *  - `'stl'`: mask-only binary clip; border comes from vector geometry in stlMaker.
  */
 export async function buildPreviewImages(
   sourceImage: HTMLImageElement | ImageBitmap | HTMLCanvasElement,
@@ -57,45 +57,68 @@ export async function buildPreviewImages(
   let colorImage: ImageData | null = null
   let textureImage: ImageData | null = null
 
-  const stencilPoly =
-    stencilMode === 'stl' ? polygons.maskPolygonMm : polygons.silhouettePolygonMm
+  const { maskPolygonMm, silhouettePolygonMm } = polygons
+  const destW = genInstruction.destImageWidth
+  const destH = genInstruction.destImageHeight
 
   if (genInstruction.colorLayer) {
     const colorCanvas = resizeImage(
       sourceImage,
-      genInstruction.destImageWidth,
-      genInstruction.destImageHeight,
+      destW,
+      destH,
       genInstruction.colorPixelWidth,
     )
-    const colorData = getImageDataFromCanvas(colorCanvas)
+    let colorData = getImageDataFromCanvas(colorCanvas)
+    colorData = await palette.quantizeColors(colorData)
     applyPolygonStencil(
       colorData,
-      stencilPoly,
+      maskPolygonMm,
       0,
       0,
       genInstruction.colorPixelWidth,
       stencilMode,
     )
-    colorImage = await palette.quantizeColors(colorData)
+    if (stencilMode === 'preview') {
+      compositeBorderRing(
+        colorData,
+        maskPolygonMm,
+        silhouettePolygonMm,
+        destW,
+        destH,
+        genInstruction.colorPixelWidth,
+      )
+    }
+    colorImage = colorData
   }
 
   if (genInstruction.textureLayer) {
     const texCanvas = resizeImage(
       sourceImage,
-      genInstruction.destImageWidth,
-      genInstruction.destImageHeight,
+      destW,
+      destH,
       genInstruction.texturePixelWidth,
     )
-    const texData = getImageDataFromCanvas(texCanvas)
+    let texData = getImageDataFromCanvas(texCanvas)
+    texData = convertToBlackAndWhite(texData)
     applyPolygonStencil(
       texData,
-      stencilPoly,
+      maskPolygonMm,
       0,
       0,
       genInstruction.texturePixelWidth,
       stencilMode,
     )
-    textureImage = convertToBlackAndWhite(texData)
+    if (stencilMode === 'preview') {
+      compositeBorderRing(
+        texData,
+        maskPolygonMm,
+        silhouettePolygonMm,
+        destW,
+        destH,
+        genInstruction.texturePixelWidth,
+      )
+    }
+    textureImage = texData
   }
 
   return { colorImage, textureImage }

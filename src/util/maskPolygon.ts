@@ -230,6 +230,24 @@ export function smoothChaikinSet(set: PolygonSet, iterations: number): PolygonSe
   return set.map((p) => smoothChaikin(p, iterations))
 }
 
+/** Upper bound on polygon vertices used for STL prism emission (spread-safe, still smooth). */
+export const STL_POLYGON_MAX_VERTS = 2048
+
+/** Uniformly subsample a closed polygon when it exceeds `maxVerts`. */
+export function decimateClosedPolygon(poly: Polygon, maxVerts: number): Polygon {
+  if (poly.length <= maxVerts) return poly
+  const n = poly.length
+  const out: Polygon = new Array(maxVerts)
+  for (let i = 0; i < maxVerts; i++) {
+    out[i] = poly[Math.floor((i * n) / maxVerts)]
+  }
+  return out
+}
+
+export function decimatePolygonSet(set: PolygonSet, maxVerts: number): PolygonSet {
+  return set.map((loop) => decimateClosedPolygon(loop, maxVerts))
+}
+
 // ---------------------------------------------------------------------------
 // Transform / geometry helpers
 // ---------------------------------------------------------------------------

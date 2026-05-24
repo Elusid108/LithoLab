@@ -13,10 +13,12 @@ import {
 import { buildPreviewImages, generatePlateZip } from './generator/plateGenerator'
 import { Palette } from './palette/palette'
 import {
+  decimatePolygonSet,
   extractMaskPolygons,
   offsetPolygonSet,
   polygonBounds,
   polygonSetToPath2D,
+  STL_POLYGON_MAX_VERTS,
   transformPolygonSet,
   type PolygonSet,
 } from './util/maskPolygon'
@@ -1326,9 +1328,19 @@ function buildRectifiedScene(): RectifiedScene | null {
     ]
   }
 
-  // 2. Silhouette = mask polygon offset outward by borderXY.
-  let silhouetteRaw = borderXY > 0 ? offsetPolygonSet(maskInitial, borderXY) : maskInitial
+  maskInitial = decimatePolygonSet(maskInitial, STL_POLYGON_MAX_VERTS)
+
+  // 2. Silhouette = mask polygon offset outward by borderXY (high-res offset for smooth STL/preview edges).
+  let silhouetteRaw =
+    borderXY > 0
+      ? offsetPolygonSet(maskInitial, borderXY, {
+          maxGrid: 2048,
+          smoothIters: 4,
+          cellSize: Math.max(borderXY / 12, 1e-6),
+        })
+      : maskInitial
   if (silhouetteRaw.length === 0) silhouetteRaw = maskInitial
+  silhouetteRaw = decimatePolygonSet(silhouetteRaw, STL_POLYGON_MAX_VERTS)
 
   // 3. Shift both polygons so silhouette top-left lands at (0, 0).
   const sBounds = polygonBounds(silhouetteRaw)
@@ -1354,13 +1366,7 @@ function buildRectifiedScene(): RectifiedScene | null {
   // 5. Switch ctx into mm space.
   ctx.setTransform(W / compositeWidthMm, 0, 0, H / compositeHeightMm, 0, 0)
 
-  // 6. Fill the silhouette with WHITE — this is the border ring that surrounds
-  //    the photo content (the photo overdraws the interior next).
-  const silhouettePath = polygonSetToPath2D(silhouettePolygonMm)
-  ctx.fillStyle = '#ffffff'
-  ctx.fill(silhouettePath, 'evenodd')
-
-  // 7. Clip to the mask polygon and draw the photo at its proper mm position.
+  // 6. Photo only — clip to mask; border ring is composited later at fine vector resolution.
   ctx.save()
   const maskPath = polygonSetToPath2D(maskPolygonMm)
   ctx.clip(maskPath, 'evenodd')

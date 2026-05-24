@@ -327,9 +327,8 @@ export function emitRingPrism(
     }
     if (!pickedInner || pickedIdx < 0) {
       // No matching inner loop → emit solid prism for this outer alone.
-      facets.push(
-        ...emitSilhouettePrism([rawOuter], zBottom, zTop, opts, polygonWidthMm),
-      )
+      const solo = emitSilhouettePrism([rawOuter], zBottom, zTop, opts, polygonWidthMm)
+      for (const f of solo) facets.push(f)
       continue
     }
     innerUsed[pickedIdx] = true

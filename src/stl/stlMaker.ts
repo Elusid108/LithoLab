@@ -25,6 +25,11 @@ function concatFacets(facets: string[]): string {
   return writeSolidStl(facets)
 }
 
+/** Append facet strings without spread (avoids stack overflow on large meshes). */
+function appendFacets(target: string[], source: string[]): void {
+  for (const f of source) target.push(f)
+}
+
 async function processRows(
   height: number,
   rowFn: (y: number) => string[],
@@ -34,7 +39,7 @@ async function processRows(
 ): Promise<string[]> {
   const all: string[] = []
   for (let y = 0; y < height; y++) {
-    all.push(...rowFn(y))
+    appendFacets(all, rowFn(y))
     if (chunkRows > 0 && y % chunkRows === chunkRows - 1) {
       onProgress?.({ phase, current: y + 1, total: height })
       await new Promise((r) => requestAnimationFrame(r))
@@ -67,8 +72,9 @@ function buildBorderFacets(
       const ringBottom = i * sliceH
       const ringTop = Math.min(colorStackTop, (i + 1) * sliceH)
       if (ringTop > ringBottom) {
-        facets.push(
-          ...emitRingPrism(
+        appendFacets(
+          facets,
+          emitRingPrism(
             silhouette,
             mask,
             ringBottom,
@@ -80,14 +86,16 @@ function buildBorderFacets(
       }
     }
   } else if (colorStackTop > 0) {
-    facets.push(
-      ...emitRingPrism(silhouette, mask, 0, colorStackTop, flatPrismOpts, polyWidthMm),
+    appendFacets(
+      facets,
+      emitRingPrism(silhouette, mask, 0, colorStackTop, flatPrismOpts, polyWidthMm),
     )
   }
 
   if (includeTextureCap && borderHeight > 0) {
-    facets.push(
-      ...emitRingPrism(
+    appendFacets(
+      facets,
+      emitRingPrism(
         silhouette,
         mask,
         colorStackTop,

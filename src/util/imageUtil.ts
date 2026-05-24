@@ -73,6 +73,115 @@ export function hasATransparentPixel(imageData: ImageData): boolean {
 
 export type PolygonStencilMode = 'preview' | 'stl'
 
+/** Fixed mm cell size for rasterizing the white border ring (independent of lithophane pixel size). */
+export const BORDER_RASTER_MM = 0.05
+
+/**
+ * Composite a smooth white border ring onto a lithophane layer that has already
+ * been pixel-reduced, processed, and clipped to the mask polygon.
+ *
+ * Rasterizes mask and silhouette on a fine grid ({@link BORDER_RASTER_MM}), derives
+ * ring coverage as silhouette minus mask, downsamples onto the output grid, and
+ * fills ring pixels with white while clipping the outer edge to the silhouette.
+ */
+export function compositeBorderRing(
+  target: ImageData,
+  mask: PolygonSet,
+  silhouette: PolygonSet,
+  imageWidthMm: number,
+  imageHeightMm: number,
+  _pixelMm: number,
+  originMmX = 0,
+  originMmY = 0,
+): void {
+  const { width, height, data } = target
+  if (silhouette.length === 0) return
+
+  const fineCell = BORDER_RASTER_MM
+  const fineW = Math.max(1, Math.ceil(imageWidthMm / fineCell))
+  const fineH = Math.max(1, Math.ceil(imageHeightMm / fineCell))
+
+  const maskFine = rasterizePolygonCoverage(
+    mask,
+    fineW,
+    fineH,
+    originMmX,
+    originMmY,
+    fineCell,
+    8,
+  )
+  const silFine = rasterizePolygonCoverage(
+    silhouette,
+    fineW,
+    fineH,
+    originMmX,
+    originMmY,
+    fineCell,
+    8,
+  )
+
+  const scaleX = fineW / width
+  const scaleY = fineH / height
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+
+      const fx0 = Math.floor(x * scaleX)
+      const fy0 = Math.floor(y * scaleY)
+      const fx1 = Math.min(fineW, Math.ceil((x + 1) * scaleX))
+      const fy1 = Math.min(fineH, Math.ceil((y + 1) * scaleY))
+
+      let silSum = 0
+      let maskSum = 0
+      let ringSum = 0
+      let count = 0
+      for (let fy = fy0; fy < fy1; fy++) {
+        const row = fy * fineW
+        for (let fx = fx0; fx < fx1; fx++) {
+          const fp = row + fx
+          const sil = silFine[fp]
+          const m = maskFine[fp]
+          silSum += sil
+          maskSum += m
+          ringSum += Math.round((sil * (255 - m)) / 255)
+          count++
+        }
+      }
+      if (count === 0) continue
+
+      const avgSil = silSum / count
+      const avgMask = maskSum / count
+      const avgRing = ringSum / count
+
+      if (avgSil < 1) {
+        data[i] = 0
+        data[i + 1] = 0
+        data[i + 2] = 0
+        data[i + 3] = 0
+        continue
+      }
+
+      const existingAlpha = data[i + 3]
+      const inMask = avgMask >= 128
+
+      if (inMask && existingAlpha > 0) {
+        data[i + 3] = Math.min(existingAlpha, Math.round(avgSil))
+      } else if (avgRing >= 1) {
+        data[i] = 255
+        data[i + 1] = 255
+        data[i + 2] = 255
+        data[i + 3] = Math.round(Math.min(255, avgRing))
+      } else {
+        data[i] = 0
+        data[i + 1] = 0
+        data[i + 2] = 0
+        data[i + 3] = 0
+      }
+    }
+  }
+}
+
 /**
  * Clip an ImageData by a polygon set. The polygon's coverage is supersampled
  * at each pixel so the edge ends up anti-aliased.
