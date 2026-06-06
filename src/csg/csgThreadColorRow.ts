@@ -66,9 +66,13 @@ export function runColorRow(csgWorkData: CSGWorkData, y: number): string[] {
         curPixelHeightAdjust += layerBefore * onePixelHeightSize
 
         const pixelWidth = csgWorkData.genInstruction.colorPixelWidth
+        const gridWidthMm = width * pixelWidth
+        const gridHeightMm = img.height * pixelWidth
+        const xOff = (csgWorkData.genInstruction.destImageWidth - gridWidthMm) / 2
+        const yOff = (csgWorkData.genInstruction.destImageHeight - gridHeightMm) / 2
         const wx = pixelWidth + k * pixelWidth
-        const cx = x * pixelWidth + (pixelWidth * k) / 2
-        const cy = y * pixelWidth
+        const cx = x * pixelWidth + (pixelWidth * k) / 2 + xOff
+        const cy = y * pixelWidth + yOff
         const cz = curPixelHeightAdjust
 
         facets.push(...cuboidTriangles(cx, cy, cz, wx, pixelWidth, curPixelHeight))

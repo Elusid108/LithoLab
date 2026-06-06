@@ -192,8 +192,8 @@ export async function buildZip(
     onProgress?.({ phase: 'plate', current: 0, total: 1 })
     const plateFacets = emitSilhouettePrism(
       maskFlipped,
-      -genInstruction.plateThickness,
       0,
+      genInstruction.plateThickness,
       flatPrismOpts,
       polyWidthMm,
     )

@@ -57,9 +57,11 @@ export function buildTextureTransform(csgWorkData: CSGWorkData): [number, number
   const cH = csgWorkData.colorImage.height * g.colorPixelWidth
   const diffW = tW - cW
   const diffH = tH - cH
+  const colorCenterOffX = (g.destImageWidth - cW) / 2
+  const colorCenterOffY = (g.destImageHeight - cH) / 2
 
-  const tx = -diffW / 2 - (g.colorPixelWidth - g.texturePixelWidth) / 2
-  const ty = -diffH / 2 - (g.colorPixelWidth - g.texturePixelWidth) / 2
+  const tx = -diffW / 2 - (g.colorPixelWidth - g.texturePixelWidth) / 2 + colorCenterOffX
+  const ty = -diffH / 2 - (g.colorPixelWidth - g.texturePixelWidth) / 2 + colorCenterOffY
   const tz = g.colorPixelLayerThickness * csgWorkData.palette.getLayerCount()
   return [tx, ty, tz]
 }

@@ -47,12 +47,12 @@ export function initPaletteManager(h: ManagerHooks): void {
 export function loadStoredPalette(defaultPalette: PaletteJson): PaletteJson {
   try {
     const raw = localStorage.getItem(PALETTE_STORAGE_KEY)
-    if (!raw) return defaultPalette
+    if (!raw) return filterPaletteWithLayers(defaultPalette)
     const parsed = JSON.parse(raw) as unknown
-    if (!isPaletteShape(parsed)) return defaultPalette
-    return parsed
+    if (!isPaletteShape(parsed)) return filterPaletteWithLayers(defaultPalette)
+    return filterPaletteWithLayers(parsed)
   } catch {
-    return defaultPalette
+    return filterPaletteWithLayers(defaultPalette)
   }
 }
 
@@ -71,6 +71,18 @@ function isPaletteShape(value: unknown): value is PaletteJson {
     if (!entry || typeof entry !== 'object') return false
   }
   return true
+}
+
+/** Drop palette entries that have no calibrated layer ramp (no `layers` data). */
+function filterPaletteWithLayers(palette: PaletteJson): PaletteJson {
+  const out: PaletteJson = {}
+  for (const [hex, entry] of Object.entries(palette)) {
+    const layers = entry.layers
+    if (layers && typeof layers === 'object' && Object.keys(layers).length > 0) {
+      out[hex] = entry
+    }
+  }
+  return out
 }
 
 function normalizeHex(hex: string): string {
@@ -487,9 +499,10 @@ function bindImportInput(): void {
         const text = typeof reader.result === 'string' ? reader.result : ''
         const parsed = JSON.parse(text) as unknown
         if (!isPaletteShape(parsed)) throw new Error('Bad shape')
+        const filtered = filterPaletteWithLayers(parsed)
         const h = requireHooks()
-        h.setPalette(parsed)
-        savePalette(parsed)
+        h.setPalette(filtered)
+        savePalette(filtered)
         h.onChange()
         renderPaletteManager()
       } catch {
@@ -502,7 +515,7 @@ function bindImportInput(): void {
 }
 
 export function exportPaletteFile(): void {
-  const palette = requireHooks().getPalette()
+  const palette = filterPaletteWithLayers(requireHooks().getPalette())
   const text = JSON.stringify(palette, null, 2)
   const blob = new Blob([text], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
