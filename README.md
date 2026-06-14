@@ -1,8 +1,6 @@
 # LithoLab Web
 > A browser-based generator that transforms 2D images into multi-filament, full-color 3D printable lithophanes with integrated AI tooling.
 
-> **Development release (v2.5.0-dev):** This version is **not stable**. Preview, mask, and STL export behavior may change. Use the [v2.3.0 release](https://github.com/Elusid108/LithoLab/releases) on GitHub if you need the last stable build.
-
 ## Overview
 LithoLab Web bridges the gap between digital images and physical 3D printing by enabling the creation of full-color, multi-layered lithophanes directly in the browser. It processes 2D images into palette-quantized color layers and grayscale texture depth maps, calculating the precise geometric facets needed for 3D extrusion. By providing an interactive canvas, users can align, mask, and preview their designs before generating the final meshes. The system outputs a comprehensive ZIP archive containing layer-specific STL files (plate, border, colors, texture), preview PNGs, and filament swapping instructions, removing the complexity of manual 3D modeling for color lithophanes.
 
@@ -14,8 +12,8 @@ Lithophane generation is based on [PIXEstL](https://github.com/gaugo87/PIXEstL) 
 * **Palette-Accurate Previews:** Combined Color and Texture preview panes match the PNGs included in the exported ZIP, so what you see is what you print.
 * **Vector-Smooth Masks & Borders:** Lithophane pixel reduction applies to photo content only; the mask and white border are composited afterward at fine vector resolution (0.05 mm) so curved edges stay smooth in previews. STL border/plate geometry uses decimated polygon prisms (no pixel stair-steps) with stack-safe mesh emission for reliable ZIP export on complex shapes (e.g. hearts).
 * **Separate STL Objects for Slicing:** Exports include `layer-plate.stl` (support under the photo area only), `layer-border.stl` (white border ring as its own object for a different filament/color), plus per-color and texture layers — so Bambu Studio and similar slicers can assign materials independently. Plate, border, color, and texture layers share a common XY center and sit flat on the build plate (Z=0) when imported as a group.
-* **Streamlined Sidebar Layout:** Width, height, and palette controls sit directly under the lithophane name; **Generate Previews** and **Download STLs** are stacked at the bottom of the sidebar for a clearer workflow.
-* **Border & Export Settings:** Numeric inputs for white border **width** (mm), border **height** (mm, Z-thickness of the top ring), and **pixel size** (mm) for precise control without sliders. Default **color pixel width** is **0.4 mm** for finer color detail.
+* **Organized Sidebar Layout:** Settings are grouped into **Color Generation** (palette, plate thickness, pixel width, layer count, mode) and **Texture Generation** (pixel size, first layer, layer height, min/max thickness) sections for a clearer workflow. **Generate Previews** and **Download STLs** are stacked at the bottom.
+* **Border & Export Settings:** Numeric inputs for border **width** (mm), border **height** (mm, Z-thickness of the top ring), and **pixel size** (mm) for precise control without sliders. Default **color pixel width** is **0.4 mm** for finer color detail.
 * **Interactive Editing Workflow:** Upload or AI-generate images, manipulate assets on a canvas with vector mask compositing, generate previews, and export a ready-to-print ZIP archive.
 * **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, high-contrast stencils, and intelligent asset names. Your API key is stored locally in the browser only — never in source code.
 
@@ -42,7 +40,10 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
 
-## v2.5.0-dev changes
+## v2.5.0 changes
+* **Sidebar reorganization:** Settings are now grouped under **Color Generation** and **Texture Generation** sub-sections. Palette is placed at the top of Color Generation for quicker access; texture controls (pixel size, first layer, layer height, min/max thickness) are grouped together below.
+* **Editable texture settings:** First Layer, Layer Height, Min Thickness, and Max Thickness are now editable inputs (previously static display values) and wired into the generation pipeline.
+* **Label cleanup:** Renamed "White border width" to "Border width" and "LithoLab generation" to "Color Generation".
 * **Stack overflow fix:** Replaced recursive palette combination generator with an iterative DFS algorithm using an explicit work stack, eliminating "Maximum call stack size exceeded" crashes when using many active colors with high layer counts.
 * **Spread operator elimination:** Replaced all `push(...array)` spread patterns across the palette, CSG, and mesh pipeline with loop-based appending to prevent call-stack pressure from large intermediate arrays.
 * **Combination cap:** Added a 200,000-entry safety cap on both the combination search and the Cartesian product across color groups, preventing runaway memory growth on extreme configurations while preserving full output for typical palettes.

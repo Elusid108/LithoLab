@@ -7,6 +7,8 @@ import {
   DEFAULT_VALUE_COLOR_PIXEL_LAYER_THICKNESS,
   DEFAULT_VALUE_COLOR_PIXEL_WIDTH,
   DEFAULT_VALUE_PLATE_THICKNESS,
+  DEFAULT_VALUE_TEXTURE_MAX_THICKNESS,
+  DEFAULT_VALUE_TEXTURE_MIN_THICKNESS,
   PixelCreationMethod,
   type GenInstruction,
 } from './genInstruction'
@@ -1550,7 +1552,7 @@ function buildGenInstructionFromState(): GenInstruction {
   g.destImageHeight = state.export.height
   g.texturePixelWidth = ps
 
-  g.plateThickness = readInputFloat('inpPlateThickness', DEFAULT_VALUE_PLATE_THICKNESS)
+  g.plateThickness = readInputFloat('inpFirstLayer', DEFAULT_VALUE_PLATE_THICKNESS)
   g.colorPixelWidth = readInputFloat('inpColorPixelWidth', DEFAULT_VALUE_COLOR_PIXEL_WIDTH)
   g.colorPixelLayerThickness = readInputFloat(
     'inpLayerThickness',
@@ -1559,6 +1561,8 @@ function buildGenInstructionFromState(): GenInstruction {
   g.colorPixelLayerNumber = readInputInt('inpLayerCount', DEFAULT_VALUE_COLOR_LAYER_NUMBER)
   g.colorNumber = Math.max(0, readInputInt('inpMaxColors', 0))
   g.borderHeightMm = state.export.borderHeightMm
+  g.textureMinThickness = readInputFloat('inpMinThickness', DEFAULT_VALUE_TEXTURE_MIN_THICKNESS)
+  g.textureMaxThickness = readInputFloat('inpMaxThickness', DEFAULT_VALUE_TEXTURE_MAX_THICKNESS)
 
   const modeSel = $('selPixelMode') as HTMLSelectElement | null
   g.pixelCreationMethod =
