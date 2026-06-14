@@ -75,7 +75,7 @@ export function runColorRow(csgWorkData: CSGWorkData, y: number): string[] {
         const cy = y * pixelWidth + yOff
         const cz = curPixelHeightAdjust
 
-        facets.push(...cuboidTriangles(cx, cy, cz, wx, pixelWidth, curPixelHeight))
+        for (const f of cuboidTriangles(cx, cy, cz, wx, pixelWidth, curPixelHeight)) facets.push(f)
       }
       x += k
     }

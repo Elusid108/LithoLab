@@ -115,50 +115,85 @@ export class Palette {
     if (i >= 0) this.hexColorList.splice(i, 1)
   }
 
+  private static readonly MAX_COMBINATIONS = 200_000
+
   private createMultiCombi(
     restrictColorList: string[] | null,
     colorLayerList: ColorLayer[],
   ): ColorCombi[] {
-    const colorCombiList: ColorCombi[] = []
+    const targetLayers = this.genInstruction.colorPixelLayerNumber
+    const result: ColorCombi[] = []
+
     for (let i = 0; i < colorLayerList.length; i++) {
       const colorLayer = colorLayerList[i]
       if (restrictColorList != null && !restrictColorList.includes(colorLayer.hexCode)) continue
 
-      const cC = ColorCombi.fromLayer(colorLayer)
-      colorCombiList.push(cC)
+      const seed = ColorCombi.fromLayer(colorLayer)
+      if (seed.getTotalLayers() === targetLayers) {
+        result.push(seed)
+      }
+
       if (i + 1 < colorLayerList.length) {
-        colorCombiList.push(...this.computeCombination(restrictColorList, cC, colorLayerList))
+        this.computeCombinationIterative(
+          restrictColorList, seed, colorLayerList, targetLayers, result,
+        )
+      }
+
+      if (result.length >= Palette.MAX_COMBINATIONS) {
+        console.warn(
+          `Palette: combination cap reached (${Palette.MAX_COMBINATIONS}). ` +
+          'Reduce active colors or layer count for exhaustive coverage.',
+        )
+        break
       }
     }
-    const finalColorCombiList: ColorCombi[] = []
-    for (const c of colorCombiList) {
-      if (c.getTotalLayers() !== this.genInstruction.colorPixelLayerNumber) continue
-      finalColorCombiList.push(c)
-    }
-    return finalColorCombiList
+
+    return result
   }
 
-  private computeCombination(
+  /**
+   * Iterative DFS replacement for the former recursive computeCombination.
+   * Uses an explicit work stack to avoid call-stack overflow on large
+   * color/layer configurations.
+   */
+  private computeCombinationIterative(
     restrictColorList: string[] | null,
-    cC: ColorCombi,
+    seedCombi: ColorCombi,
     colorLayerList: ColorLayer[],
-  ): ColorCombi[] {
-    const colorCombiList: ColorCombi[] = []
-    for (let i = 0; i < colorLayerList.length; i++) {
-      const colorLayer = colorLayerList[i]
-      if (restrictColorList != null && !restrictColorList.includes(colorLayer.hexCode)) continue
-      const layer = colorLayer.layer
-      if (cC.getTotalLayers() + layer > this.nbLayers) continue
-      if (cC.getTotalColors() >= this.hexCodesMap.size) break
+    targetLayers: number,
+    out: ColorCombi[],
+  ): void {
+    const maxColors = this.hexCodesMap.size
+    const cap = Palette.MAX_COMBINATIONS
 
-      const cC2 = cC.combineLithoColorLayer(colorLayer, this.nbLayers)
-      if (cC2 == null) continue
-      if (cC2.getTotalLayers() === this.genInstruction.colorPixelLayerNumber) colorCombiList.push(cC2)
-      if (i + 1 < colorLayerList.length) {
-        colorCombiList.push(...this.computeCombination(restrictColorList, cC2, colorLayerList))
+    interface Frame { combi: ColorCombi; startIdx: number }
+    const stack: Frame[] = [{ combi: seedCombi, startIdx: 0 }]
+
+    while (stack.length > 0) {
+      if (out.length >= cap) return
+
+      const frame = stack.pop()!
+      const { combi, startIdx } = frame
+
+      for (let i = startIdx; i < colorLayerList.length; i++) {
+        const colorLayer = colorLayerList[i]
+        if (restrictColorList != null && !restrictColorList.includes(colorLayer.hexCode)) continue
+        if (combi.getTotalLayers() + colorLayer.layer > this.nbLayers) continue
+        if (combi.getTotalColors() >= maxColors) break
+
+        const combined = combi.combineLithoColorLayer(colorLayer, this.nbLayers)
+        if (combined == null) continue
+
+        if (combined.getTotalLayers() === targetLayers) {
+          out.push(combined)
+          if (out.length >= cap) return
+        }
+
+        if (i + 1 < colorLayerList.length && combined.getTotalLayers() < targetLayers) {
+          stack.push({ combi: combined, startIdx: i + 1 })
+        }
       }
     }
-    return colorCombiList
   }
 
   getColorHexList(): string[] {
@@ -252,14 +287,26 @@ export class Palette {
       colorCombiListList.push(curColorCombiList)
     }
 
+    const cap = Palette.MAX_COMBINATIONS
     const tempColorCombiListList: ColorCombi[][] = []
     tempColorCombiListList.push(colorCombiListList[0])
     for (let i = 0; i < nbGroup - 1; i++) {
       const tempColorCombiList: ColorCombi[] = []
-      for (const cI of tempColorCombiListList[i]) {
-        for (const cI1 of colorCombiListList[i + 1]) {
+      const prevList = tempColorCombiListList[i]
+      const nextList = colorCombiListList[i + 1]
+      let capped = false
+      for (const cI of prevList) {
+        for (const cI1 of nextList) {
           tempColorCombiList.push(cI.combineLithoColorCombi(cI1))
+          if (tempColorCombiList.length >= cap) { capped = true; break }
         }
+        if (capped) break
+      }
+      if (capped) {
+        console.warn(
+          `Palette: Cartesian product cap reached (${cap}) at group ${i + 1}/${nbGroup}. ` +
+          'Reduce active colors or layer count for exhaustive coverage.',
+        )
       }
       tempColorCombiListList.push(tempColorCombiList)
     }
@@ -299,7 +346,9 @@ export class Palette {
         l += cL.layer
       }
       cc.layers = []
-      cc.layers.push(...bottomLayerList, ...middleLayerList, ...topLayerList)
+      for (const l of bottomLayerList) cc.layers.push(l)
+      for (const l of middleLayerList) cc.layers.push(l)
+      for (const l of topLayerList) cc.layers.push(l)
     }
   }
 

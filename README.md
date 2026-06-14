@@ -1,7 +1,7 @@
 # LithoLab Web
 > A browser-based generator that transforms 2D images into multi-filament, full-color 3D printable lithophanes with integrated AI tooling.
 
-> **Development release (v2.4.4-dev):** This version is **not stable**. Preview, mask, and STL export behavior may change. Use the [v2.3.0 release](https://github.com/Elusid108/LithoLab/releases) on GitHub if you need the last stable build.
+> **Development release (v2.5.0-dev):** This version is **not stable**. Preview, mask, and STL export behavior may change. Use the [v2.3.0 release](https://github.com/Elusid108/LithoLab/releases) on GitHub if you need the last stable build.
 
 ## Overview
 LithoLab Web bridges the gap between digital images and physical 3D printing by enabling the creation of full-color, multi-layered lithophanes directly in the browser. It processes 2D images into palette-quantized color layers and grayscale texture depth maps, calculating the precise geometric facets needed for 3D extrusion. By providing an interactive canvas, users can align, mask, and preview their designs before generating the final meshes. The system outputs a comprehensive ZIP archive containing layer-specific STL files (plate, border, colors, texture), preview PNGs, and filament swapping instructions, removing the complexity of manual 3D modeling for color lithophanes.
@@ -41,6 +41,11 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
+
+## v2.5.0-dev changes
+* **Stack overflow fix:** Replaced recursive palette combination generator with an iterative DFS algorithm using an explicit work stack, eliminating "Maximum call stack size exceeded" crashes when using many active colors with high layer counts.
+* **Spread operator elimination:** Replaced all `push(...array)` spread patterns across the palette, CSG, and mesh pipeline with loop-based appending to prevent call-stack pressure from large intermediate arrays.
+* **Combination cap:** Added a 200,000-entry safety cap on both the combination search and the Cartesian product across color groups, preventing runaway memory growth on extreme configurations while preserving full output for typical palettes.
 
 ## v2.4.4-dev changes
 * **STL Z alignment:** Plate now extrudes from Z=0 to Z=plateThickness so the border ring no longer floats above the build plate when all STLs are imported together in Bambu Studio.

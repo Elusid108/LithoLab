@@ -28,7 +28,7 @@ export class ColorCombi {
 
   combineLithoColorCombi(other: ColorCombi): ColorCombi {
     const c = this.duplicate()
-    c.layers.push(...other.layers)
+    for (const l of other.layers) c.layers.push(l)
     return c
   }
 
@@ -77,7 +77,7 @@ export class ColorCombi {
 
   duplicate(): ColorCombi {
     const c = new ColorCombi()
-    c.layers.push(...this.layers)
+    for (const l of this.layers) c.layers.push(l)
     return c
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "litholab-web",
   "private": true,
-  "version": "2.4.4-dev",
+  "version": "2.5.0-dev",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -30,7 +30,7 @@ export function runSupportRow(csgWorkData: CSGWorkData, y: number): string[] {
     const cy = y * pixelWidth
     const cz = plateThickness / 2 - plateThickness
 
-    facets.push(...cuboidTriangles(cx, cy, cz, w, pixelWidth, plateThickness))
+    for (const f of cuboidTriangles(cx, cy, cz, w, pixelWidth, plateThickness)) facets.push(f)
     x += k
   }
 

@@ -15,7 +15,7 @@ export function generateSupportPlateStl(colorImage: ImageData, genInstruction: G
 
       const cx = x * colorPixelWidth
       const cy = y * colorPixelWidth
-      facets.push(...cuboidTriangles(cx, cy, cz, colorPixelWidth, colorPixelWidth, plateThickness))
+      for (const f of cuboidTriangles(cx, cy, cz, colorPixelWidth, colorPixelWidth, plateThickness)) facets.push(f)
     }
   }
 
