@@ -40,6 +40,9 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
 
+## v2.5.1 changes
+* **Border alignment fix:** Border ring and plate prism translations now include the pixel-grid centering offset (`xOff`/`yOff`) that the cuboid emitter already applies, eliminating the 0.2-0.6 mm gap between the white/color lithophane layers and the inner edge of the border.
+
 ## v2.5.0 changes
 * **Sidebar reorganization:** Settings are now grouped under **Color Generation** and **Texture Generation** sub-sections. Palette is placed at the top of Color Generation for quicker access; texture controls (pixel size, first layer, layer height, min/max thickness) are grouped together below.
 * **Editable texture settings:** First Layer, Layer Height, Min Thickness, and Max Thickness are now editable inputs (previously static display values) and wired into the generation pipeline.
