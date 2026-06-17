@@ -62,20 +62,29 @@ export async function buildPreviewImages(
   const destH = genInstruction.destImageHeight
 
   if (genInstruction.colorLayer) {
-    const colorCanvas = resizeImage(
-      sourceImage,
-      destW,
-      destH,
-      genInstruction.colorPixelWidth,
-    )
+    const cpw = genInstruction.colorPixelWidth
+    const colorCanvas = resizeImage(sourceImage, destW, destH, cpw)
     let colorData = getImageDataFromCanvas(colorCanvas)
     colorData = await palette.quantizeColors(colorData)
+
+    // In 'stl' mode, shift the stencil rasterizer origin so its pixel area in
+    // world coordinates matches where the cuboid emitter actually places each
+    // cuboid (`[x*pw + xOff - pw/2, x*pw + xOff + pw/2]`). Without this shift
+    // the stencil decision is made about a different world area than the
+    // cuboid, leaving up to a `pw/2` gap between the lithophane edge cuboids
+    // and the border ring's inner wall. Preview mode keeps origin (0, 0) so
+    // it stays aligned with `compositeBorderRing`.
+    const colorXOff = (destW - colorCanvas.width * cpw) / 2
+    const colorYOff = (destH - colorCanvas.height * cpw) / 2
+    const colorStencilOriginX = stencilMode === 'stl' ? colorXOff - cpw / 2 : 0
+    const colorStencilOriginY = stencilMode === 'stl' ? colorYOff - cpw / 2 : 0
+
     applyPolygonStencil(
       colorData,
       maskPolygonMm,
-      0,
-      0,
-      genInstruction.colorPixelWidth,
+      colorStencilOriginX,
+      colorStencilOriginY,
+      cpw,
       stencilMode,
     )
     if (stencilMode === 'preview') {
@@ -85,27 +94,29 @@ export async function buildPreviewImages(
         silhouettePolygonMm,
         destW,
         destH,
-        genInstruction.colorPixelWidth,
+        cpw,
       )
     }
     colorImage = colorData
   }
 
   if (genInstruction.textureLayer) {
-    const texCanvas = resizeImage(
-      sourceImage,
-      destW,
-      destH,
-      genInstruction.texturePixelWidth,
-    )
+    const tpw = genInstruction.texturePixelWidth
+    const texCanvas = resizeImage(sourceImage, destW, destH, tpw)
     let texData = getImageDataFromCanvas(texCanvas)
     texData = convertToBlackAndWhite(texData)
+
+    const texXOff = (destW - texCanvas.width * tpw) / 2
+    const texYOff = (destH - texCanvas.height * tpw) / 2
+    const texStencilOriginX = stencilMode === 'stl' ? texXOff - tpw / 2 : 0
+    const texStencilOriginY = stencilMode === 'stl' ? texYOff - tpw / 2 : 0
+
     applyPolygonStencil(
       texData,
       maskPolygonMm,
-      0,
-      0,
-      genInstruction.texturePixelWidth,
+      texStencilOriginX,
+      texStencilOriginY,
+      tpw,
       stencilMode,
     )
     if (stencilMode === 'preview') {
@@ -115,7 +126,7 @@ export async function buildPreviewImages(
         silhouettePolygonMm,
         destW,
         destH,
-        genInstruction.texturePixelWidth,
+        tpw,
       )
     }
     textureImage = texData

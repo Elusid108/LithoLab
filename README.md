@@ -40,8 +40,11 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
 
+## v2.5.2 changes
+* **Border alignment fix (proper):** The v2.5.1 translate change did not actually close the gap because it shifted the border and cuboids by equal-and-opposite amounts. The real cause is that the stencil rasterizer in `applyPolygonStencil` was deciding pixel retention against world area `[x*pw, (x+1)*pw]` while the cuboid emitter places that pixel at `[x*pw + xOff - pw/2, x*pw + xOff + pw/2]`. The stencil now uses origin `(xOff - pw/2, yOff - pw/2)` in STL mode (color and texture), so retained pixels map to cuboids whose right edge always overlaps the border ring's inner wall by `(0, pw]` mm — guaranteeing no gap. Border prism translates reverted to the original `(-pw/2, -pw/2, 0)`.
+
 ## v2.5.1 changes
-* **Border alignment fix:** Border ring and plate prism translations now include the pixel-grid centering offset (`xOff`/`yOff`) that the cuboid emitter already applies, eliminating the 0.2-0.6 mm gap between the white/color lithophane layers and the inner edge of the border.
+* **Border alignment fix (incomplete):** Added pixel-grid centering offset to the border prism translation. Superseded by v2.5.2; this change alone did not eliminate the gap.
 
 ## v2.5.0 changes
 * **Sidebar reorganization:** Settings are now grouped under **Color Generation** and **Texture Generation** sub-sections. Palette is placed at the top of Color Generation for quicker access; texture controls (pixel size, first layer, layer height, min/max thickness) are grouped together below.

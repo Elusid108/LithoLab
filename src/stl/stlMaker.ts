@@ -147,38 +147,20 @@ export async function buildZip(
   const colorStackTop =
     genInstruction.colorPixelLayerThickness * palette.getLayerCount()
   const borderHeight = Math.max(0, genInstruction.borderHeightMm)
-
-  const cpw = genInstruction.colorPixelWidth
-  const colorXOff = colorImage
-    ? (genInstruction.destImageWidth - colorImage.width * cpw) / 2
-    : 0
-  const colorYOff = colorImage
-    ? (genInstruction.destImageHeight - colorImage.height * cpw) / 2
-    : 0
-
   const flatPrismOpts: PrismOptions = {
     genInstruction,
     translate: [
-      -cpw / 2 + colorXOff,
-      -cpw / 2 + colorYOff,
+      -genInstruction.colorPixelWidth / 2,
+      -genInstruction.colorPixelWidth / 2,
       0,
     ],
     applyCurve: false,
   }
-
-  const tpw = genInstruction.texturePixelWidth
-  const texXOff = texturedImage
-    ? (genInstruction.destImageWidth - texturedImage.width * tpw) / 2
-    : 0
-  const texYOff = texturedImage
-    ? (genInstruction.destImageHeight - texturedImage.height * tpw) / 2
-    : 0
-
   const texturePrismOpts: PrismOptions = {
     genInstruction,
     translate: [
-      -tpw / 2 + texXOff,
-      -tpw / 2 + texYOff,
+      -genInstruction.texturePixelWidth / 2,
+      -genInstruction.texturePixelWidth / 2,
       0,
     ],
     applyCurve: true,
