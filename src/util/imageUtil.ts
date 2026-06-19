@@ -189,11 +189,14 @@ export function compositeBorderRing(
  * - `'preview'` mode: pixels with non-zero coverage keep their RGB and get
  *   `alpha = coverage` (smooth, anti-aliased edges for the on-screen / PNG
  *   previews).
- * - `'stl'` mode: pixels with coverage ≥ 50% get `alpha = 255`, everything
- *   else is cleared. The cuboid emitters consume this as a binary stencil;
- *   the smooth outer silhouette is provided by the polygon-prism geometry
- *   added in stlMaker.ts, which overlaps the half-pixel border cuboids and
- *   gets unioned by the slicer.
+ * - `'stl'` mode: any pixel touched by the mask (coverage > 0) gets
+ *   `alpha = 255`, everything else is cleared. This deliberately extends the
+ *   cuboid grid up to one pixel past the mask edge on each side so it always
+ *   overlaps the border ring's inner wall (which sits at the mask polygon),
+ *   eliminating discretization gaps. The cuboid emitters consume this as a
+ *   binary stencil; the smooth outer silhouette is provided by the polygon-
+ *   prism geometry in stlMaker.ts, which overlaps the edge cuboids and gets
+ *   unioned by the slicer.
  */
 export function applyPolygonStencil(
   target: ImageData,
@@ -219,7 +222,7 @@ export function applyPolygonStencil(
   )
   if (mode === 'stl') {
     for (let p = 0, i = 0; p < coverage.length; p++, i += 4) {
-      if (coverage[p] < 128) {
+      if (coverage[p] < 1) {
         data[i] = 0
         data[i + 1] = 0
         data[i + 2] = 0

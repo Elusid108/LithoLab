@@ -147,11 +147,18 @@ export async function buildZip(
   const colorStackTop =
     genInstruction.colorPixelLayerThickness * palette.getLayerCount()
   const borderHeight = Math.max(0, genInstruction.borderHeightMm)
+  // Y translate is doubled (-pw instead of -pw/2) to close the off-by-pw
+  // discrepancy between `flipPolygonSetY` (mirrors polygons around
+  // `destImageHeight/2`) and the cuboid grid in the flipped image (which is
+  // implicitly centered at `destImageHeight/2 - pw/2`). Without the doubling
+  // the user sees an asymmetric gap on the print's top edge only. X stays at
+  // -pw/2 because there is no X flip and that value already aligns the
+  // silhouette polygon with the cuboid grid extent.
   const flatPrismOpts: PrismOptions = {
     genInstruction,
     translate: [
       -genInstruction.colorPixelWidth / 2,
-      -genInstruction.colorPixelWidth / 2,
+      -genInstruction.colorPixelWidth,
       0,
     ],
     applyCurve: false,
@@ -160,7 +167,7 @@ export async function buildZip(
     genInstruction,
     translate: [
       -genInstruction.texturePixelWidth / 2,
-      -genInstruction.texturePixelWidth / 2,
+      -genInstruction.texturePixelWidth,
       0,
     ],
     applyCurve: true,
