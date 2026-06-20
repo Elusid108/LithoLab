@@ -147,17 +147,22 @@ export async function buildZip(
   const colorStackTop =
     genInstruction.colorPixelLayerThickness * palette.getLayerCount()
   const borderHeight = Math.max(0, genInstruction.borderHeightMm)
-  // Y translate is doubled (-pw instead of -pw/2) to close the off-by-pw
-  // discrepancy between `flipPolygonSetY` (mirrors polygons around
-  // `destImageHeight/2`) and the cuboid grid in the flipped image (which is
-  // implicitly centered at `destImageHeight/2 - pw/2`). Without the doubling
-  // the user sees an asymmetric gap on the print's top edge only. X stays at
-  // -pw/2 because there is no X flip and that value already aligns the
-  // silhouette polygon with the cuboid grid extent.
+  // Border/plate prism alignment to the cuboid grid (with the v2.5.2 stencil
+  // origin shift of `xOff - pw/2`, each stencil cell center coincides with a
+  // cuboid center):
+  //   - X translate is 0. There is no X flip, so the mask edge already lands on
+  //     the cuboid center; the border wall therefore sits inside the cuboid's
+  //     X extent and the any-coverage cuboid straddles it on both sides. Any
+  //     non-zero X translate (e.g. the old -pw/2) knocks the wall off the
+  //     cuboid centers and reintroduces a left/right sliver gap of up to pw/2.
+  //   - Y translate is -pw. `flipPolygonSetY` mirrors polygons around
+  //     `destImageHeight/2`, putting the flipped mask point pw above the cuboid
+  //     center; -pw brings the wall back onto the cuboid center, closing the
+  //     top-edge gap.
   const flatPrismOpts: PrismOptions = {
     genInstruction,
     translate: [
-      -genInstruction.colorPixelWidth / 2,
+      0,
       -genInstruction.colorPixelWidth,
       0,
     ],
@@ -166,7 +171,7 @@ export async function buildZip(
   const texturePrismOpts: PrismOptions = {
     genInstruction,
     translate: [
-      -genInstruction.texturePixelWidth / 2,
+      0,
       -genInstruction.texturePixelWidth,
       0,
     ],
