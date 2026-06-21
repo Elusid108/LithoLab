@@ -10,8 +10,8 @@ import { writeSolidStl } from '../csg/stl'
 import { hasATransparentPixel } from '../util/imageUtil'
 import { emitRingPrism, emitSilhouettePrism, type PrismOptions } from '../csg/csgPolyPrism'
 import {
+  buildBorderRingPolygons,
   flipPolygonSetY,
-  offsetPolygonSet,
   type PolygonSet,
   type SilhouettePolygons,
 } from '../util/maskPolygon'
@@ -220,19 +220,15 @@ export async function buildZip(
     checkAbort()
 
     onProgress?.({ phase: 'border', current: 0, total: 1 })
-    const pw = genInstruction.colorPixelWidth
-    const maskInnerFlipped =
-      pw > 0
-        ? offsetPolygonSet(maskFlipped, -pw / 2, {
-            maxGrid: 2048,
-            smoothIters: 2,
-            cellSize: Math.max(pw / 12, 1e-6),
-          })
-        : maskFlipped
-    const ringInner =
-      maskInnerFlipped.length > 0 ? maskInnerFlipped : maskFlipped
-    const borderFacets = buildBorderFacets(
+    const overlap = Math.max(0, genInstruction.borderOverlapMm)
+    const { ringInner, ringOuter } = buildBorderRingPolygons(
+      maskFlipped,
       silhouetteFlipped,
+      overlap,
+      { cellSize: Math.max(overlap / 12, 1e-6) },
+    )
+    const borderFacets = buildBorderFacets(
+      ringOuter,
       ringInner,
       genInstruction,
       colorStackTop,

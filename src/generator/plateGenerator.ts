@@ -11,7 +11,7 @@ import {
   imageDataToCanvas,
   resizeImage,
 } from '../util/imageUtil'
-import type { SilhouettePolygons } from '../util/maskPolygon'
+import { buildBorderRingPolygons, type SilhouettePolygons } from '../util/maskPolygon'
 import { buildZip, type ProgressFn } from '../stl/stlMaker'
 
 export type { SilhouettePolygons } from '../util/maskPolygon'
@@ -88,10 +88,15 @@ export async function buildPreviewImages(
       stencilMode,
     )
     if (stencilMode === 'preview') {
-      compositeBorderRing(
-        colorData,
+      const { ringInner, ringOuter } = buildBorderRingPolygons(
         maskPolygonMm,
         silhouettePolygonMm,
+        genInstruction.borderOverlapMm,
+      )
+      compositeBorderRing(
+        colorData,
+        ringInner,
+        ringOuter,
         destW,
         destH,
         cpw,
@@ -120,10 +125,15 @@ export async function buildPreviewImages(
       stencilMode,
     )
     if (stencilMode === 'preview') {
-      compositeBorderRing(
-        texData,
+      const { ringInner, ringOuter } = buildBorderRingPolygons(
         maskPolygonMm,
         silhouettePolygonMm,
+        genInstruction.borderOverlapMm,
+      )
+      compositeBorderRing(
+        texData,
+        ringInner,
+        ringOuter,
         destW,
         destH,
         tpw,

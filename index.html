@@ -296,8 +296,12 @@
               <span class="dim-label">Border height (mm)</span>
               <input type="number" id="inpBorderHeight" class="dim-input" step="0.01" min="0" value="3" onchange="onBorderHeightChange()" />
             </div>
+            <div class="dim-group">
+              <span class="dim-label">Border overlap (mm)</span>
+              <input type="number" id="inpBorderOverlap" class="dim-input" step="0.01" min="0" value="0.4" onchange="onBorderOverlapChange()" />
+            </div>
           </div>
-          <p style="font-size: 11px; color: #888; margin: -4px 0 8px 0">Z-thickness of the white border ring (independent of width).</p>
+          <p style="font-size: 11px; color: #888; margin: -4px 0 8px 0">Border height is Z-thickness of the white ring. Overlap shifts the ring inward to close gaps; width stays the same.</p>
 
           <h3 style="margin: 16px 0 8px 0; font-size: 13px">Color Generation</h3>
 

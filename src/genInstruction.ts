@@ -37,6 +37,8 @@ export interface GenInstruction {
   colorNumber: number
   /** Z-height (mm) of the white-border ring, independent of border XY width. */
   borderHeightMm: number
+  /** Inward shift (mm) of both border ring edges; printed width stays unchanged. */
+  borderOverlapMm: number
 }
 
 export const DEFAULT_VALUE_PLATE_THICKNESS = 0.15
@@ -55,6 +57,7 @@ export const DEFAULT_VALUE_COLOR_LAYER = true
 export const DEFAULT_VALUE_TEXTURE_LAYER = true
 export const DEFAULT_VALUE_CURVE = 0
 export const DEFAULT_VALUE_BORDER_HEIGHT_MM = 3.0
+export const DEFAULT_VALUE_BORDER_OVERLAP_MM = 0.4
 
 export function createDefaultGenInstruction(): GenInstruction {
   return {
@@ -80,5 +83,6 @@ export function createDefaultGenInstruction(): GenInstruction {
     lowMemory: false,
     colorNumber: 0,
     borderHeightMm: DEFAULT_VALUE_BORDER_HEIGHT_MM,
+    borderOverlapMm: DEFAULT_VALUE_BORDER_OVERLAP_MM,
   }
 }

@@ -476,11 +476,12 @@ function edtSquaredFromInside(inside: Uint8Array, w: number, h: number): Float64
 // ---------------------------------------------------------------------------
 
 /**
- * Outward offset of a polygon set by `delta` (same units as the polygon
- * coordinates). For `delta <= 0` returns the input unchanged.
+ * Outward or inward offset of a polygon set by `delta` (same units as the
+ * polygon coordinates). Positive `delta` expands outward; negative `delta`
+ * erodes inward. For `delta === 0` returns the input unchanged.
  *
  * Implementation: rasterize the polygon into a high-resolution binary grid,
- * compute the squared EDT, threshold at `delta²`, and re-extract polygons
+ * compute the squared EDT, threshold at `|delta|²`, and re-extract polygons
  * via marching squares. Robust to concavities, self-touching edges, and
  * multi-loop masks. Output polygons are smoothed by `smoothIters` rounds of
  * Chaikin (default 2) since the re-extracted edges otherwise step in
@@ -492,16 +493,19 @@ export function offsetPolygonSet(
   opts: { cellSize?: number; maxGrid?: number; smoothIters?: number } = {},
 ): PolygonSet {
   if (set.length === 0) return set
-  if (delta <= 0) return set
+  if (delta === 0) return set
+
+  const inward = delta < 0
+  const absDelta = Math.abs(delta)
 
   const b = polygonBounds(set)
-  const pad = delta * 1.25 + 4
+  const pad = absDelta * 1.25 + 4
   const spanX = b.maxX - b.minX + 2 * pad
   const spanY = b.maxY - b.minY + 2 * pad
 
   const maxGrid = opts.maxGrid ?? 1024
   const minCellFromGrid = Math.max(spanX, spanY) / maxGrid
-  const accuracyCell = Math.max(delta / 6, 1e-6)
+  const accuracyCell = Math.max(absDelta / 6, 1e-6)
   let cellSize = opts.cellSize ?? Math.max(minCellFromGrid, accuracyCell)
 
   let w = Math.ceil(spanX / cellSize)
@@ -515,20 +519,53 @@ export function offsetPolygonSet(
   const oy = b.minY - pad
 
   const inside = rasterizePolygonsBinary(set, w, h, ox, oy, cellSize)
-  const distSq = edtSquaredFromInside(inside, w, h)
-  const dCells = delta / cellSize
+  const dCells = absDelta / cellSize
   const dSq = dCells * dCells
-  const expanded = new Uint8Array(w * h)
-  for (let i = 0; i < w * h; i++) {
-    expanded[i] = inside[i] || distSq[i] <= dSq ? 1 : 0
+
+  let resultGrid: Uint8Array
+  if (inward) {
+    const outside = new Uint8Array(w * h)
+    for (let i = 0; i < w * h; i++) outside[i] = inside[i] ? 0 : 1
+    const distSq = edtSquaredFromInside(outside, w, h)
+    resultGrid = new Uint8Array(w * h)
+    for (let i = 0; i < w * h; i++) {
+      resultGrid[i] = inside[i] && distSq[i] >= dSq ? 1 : 0
+    }
+  } else {
+    const distSq = edtSquaredFromInside(inside, w, h)
+    resultGrid = new Uint8Array(w * h)
+    for (let i = 0; i < w * h; i++) {
+      resultGrid[i] = inside[i] || distSq[i] <= dSq ? 1 : 0
+    }
   }
 
-  const gridPolys = extractPolygonsFromBinary(expanded, w, h)
+  const gridPolys = extractPolygonsFromBinary(resultGrid, w, h)
   const smoothIters = opts.smoothIters ?? 2
   const smoothed = smoothIters > 0 ? gridPolys.map((p) => smoothChaikin(p, smoothIters)) : gridPolys
   return smoothed.map((loop) =>
     loop.map((p) => ({ x: ox + p.x * cellSize, y: oy + p.y * cellSize })),
   )
+}
+
+/**
+ * Build inner/outer loops for the border ring by shifting both mask and
+ * silhouette inward by `overlapMm` while preserving ring thickness.
+ */
+export function buildBorderRingPolygons(
+  mask: PolygonSet,
+  silhouette: PolygonSet,
+  overlapMm: number,
+  opts?: { maxGrid?: number; smoothIters?: number; cellSize?: number },
+): { ringInner: PolygonSet; ringOuter: PolygonSet } {
+  if (overlapMm <= 0) return { ringInner: mask, ringOuter: silhouette }
+  const cellSize = opts?.cellSize ?? Math.max(overlapMm / 12, 1e-6)
+  const offsetOpts = { maxGrid: 2048, smoothIters: 2, cellSize, ...opts }
+  const inner = offsetPolygonSet(mask, -overlapMm, offsetOpts)
+  const outer = offsetPolygonSet(silhouette, -overlapMm, offsetOpts)
+  return {
+    ringInner: inner.length > 0 ? inner : mask,
+    ringOuter: outer.length > 0 ? outer : silhouette,
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import {
   ColorDistanceComputation,
   createDefaultGenInstruction,
   DEFAULT_VALUE_BORDER_HEIGHT_MM,
+  DEFAULT_VALUE_BORDER_OVERLAP_MM,
   DEFAULT_VALUE_COLOR_LAYER_NUMBER,
   DEFAULT_VALUE_COLOR_PIXEL_LAYER_THICKNESS,
   DEFAULT_VALUE_COLOR_PIXEL_WIDTH,
@@ -598,6 +599,7 @@ interface AppState {
     border: number
     pixelSizeMm: number
     borderHeightMm: number
+    borderOverlapMm: number
   }
   photo: PhotoLayer
   mask: MaskLayer
@@ -650,6 +652,7 @@ const state: AppState = {
     border: 3,
     pixelSizeMm: 0.2,
     borderHeightMm: DEFAULT_VALUE_BORDER_HEIGHT_MM,
+    borderOverlapMm: DEFAULT_VALUE_BORDER_OVERLAP_MM,
   },
   photo: {
     img: null,
@@ -1511,6 +1514,17 @@ function syncExportSettingsFromInputs(): void {
     'inpBorderHeight',
     DEFAULT_VALUE_BORDER_HEIGHT_MM,
   )
+  state.export.borderOverlapMm = readInputFloat(
+    'inpBorderOverlap',
+    DEFAULT_VALUE_BORDER_OVERLAP_MM,
+  )
+  const maxOverlap = Math.max(0, state.export.border - 0.01)
+  state.export.borderOverlapMm = Math.min(
+    Math.max(0, state.export.borderOverlapMm),
+    maxOverlap,
+  )
+  const overlapEl = $('inpBorderOverlap') as HTMLInputElement | null
+  if (overlapEl) overlapEl.value = String(state.export.borderOverlapMm)
   state.export.pixelSizeMm = readInputFloat('inpPixelSize', state.export.pixelSizeMm)
 }
 
@@ -1522,6 +1536,12 @@ function onBorderWidthChange(): void {
 
 function onBorderHeightChange(): void {
   syncExportSettingsFromInputs()
+}
+
+function onBorderOverlapChange(): void {
+  syncExportSettingsFromInputs()
+  updateExportGridReadout()
+  if (state.pixelData) void generateLayers()
 }
 
 function onPixelSizeChange(): void {
@@ -1561,6 +1581,7 @@ function buildGenInstructionFromState(): GenInstruction {
   g.colorPixelLayerNumber = readInputInt('inpLayerCount', DEFAULT_VALUE_COLOR_LAYER_NUMBER)
   g.colorNumber = Math.max(0, readInputInt('inpMaxColors', 0))
   g.borderHeightMm = state.export.borderHeightMm
+  g.borderOverlapMm = state.export.borderOverlapMm
   g.textureMinThickness = readInputFloat('inpMinThickness', DEFAULT_VALUE_TEXTURE_MIN_THICKNESS)
   g.textureMaxThickness = readInputFloat('inpMaxThickness', DEFAULT_VALUE_TEXTURE_MAX_THICKNESS)
 
@@ -2198,6 +2219,8 @@ function init(): void {
   if (bw) bw.value = String(state.export.border)
   const bh = $('inpBorderHeight') as HTMLInputElement | null
   if (bh) bh.value = String(state.export.borderHeightMm)
+  const bo = $('inpBorderOverlap') as HTMLInputElement | null
+  if (bo) bo.value = String(state.export.borderOverlapMm)
   const ps = $('inpPixelSize') as HTMLInputElement | null
   if (ps) ps.value = String(state.export.pixelSizeMm)
   updateExportGridReadout()
@@ -2246,6 +2269,7 @@ function init(): void {
     updateUnitDisplay,
     onBorderWidthChange,
     onBorderHeightChange,
+    onBorderOverlapChange,
     onPixelSizeChange,
     generateLayers,
     exportDownload,
