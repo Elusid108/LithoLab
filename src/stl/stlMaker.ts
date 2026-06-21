@@ -9,7 +9,12 @@ import { CSGWorkData } from '../csg/csgWorkData'
 import { writeSolidStl } from '../csg/stl'
 import { hasATransparentPixel } from '../util/imageUtil'
 import { emitRingPrism, emitSilhouettePrism, type PrismOptions } from '../csg/csgPolyPrism'
-import { flipPolygonSetY, type PolygonSet, type SilhouettePolygons } from '../util/maskPolygon'
+import {
+  flipPolygonSetY,
+  offsetPolygonSet,
+  type PolygonSet,
+  type SilhouettePolygons,
+} from '../util/maskPolygon'
 
 const FLEXIBLE_COLOR_PLATE_NB = 3
 
@@ -215,9 +220,20 @@ export async function buildZip(
     checkAbort()
 
     onProgress?.({ phase: 'border', current: 0, total: 1 })
+    const pw = genInstruction.colorPixelWidth
+    const maskInnerFlipped =
+      pw > 0
+        ? offsetPolygonSet(maskFlipped, -pw / 2, {
+            maxGrid: 2048,
+            smoothIters: 2,
+            cellSize: Math.max(pw / 12, 1e-6),
+          })
+        : maskFlipped
+    const ringInner =
+      maskInnerFlipped.length > 0 ? maskInnerFlipped : maskFlipped
     const borderFacets = buildBorderFacets(
       silhouetteFlipped,
-      maskFlipped,
+      ringInner,
       genInstruction,
       colorStackTop,
       borderHeight,

@@ -39,9 +39,9 @@ export interface GenInstruction {
   borderHeightMm: number
 }
 
-export const DEFAULT_VALUE_PLATE_THICKNESS = 0.2
-export const DEFAULT_VALUE_COLOR_LAYER_NUMBER = 5
-export const DEFAULT_VALUE_COLOR_PIXEL_LAYER_THICKNESS = 0.1
+export const DEFAULT_VALUE_PLATE_THICKNESS = 0.15
+export const DEFAULT_VALUE_COLOR_LAYER_NUMBER = 10
+export const DEFAULT_VALUE_COLOR_PIXEL_LAYER_THICKNESS = 0.05
 export const DEFAULT_VALUE_COLOR_PIXEL_WIDTH = 0.4
 export const DEFAULT_VALUE_TEXTURE_MAX_THICKNESS = 2.7
 export const DEFAULT_VALUE_TEXTURE_MIN_THICKNESS = 0.8
@@ -54,7 +54,7 @@ export const DEFAULT_VALUE_ROW_THREAD_TIMEOUT = 120
 export const DEFAULT_VALUE_COLOR_LAYER = true
 export const DEFAULT_VALUE_TEXTURE_LAYER = true
 export const DEFAULT_VALUE_CURVE = 0
-export const DEFAULT_VALUE_BORDER_HEIGHT_MM = 1.0
+export const DEFAULT_VALUE_BORDER_HEIGHT_MM = 3.0
 
 export function createDefaultGenInstruction(): GenInstruction {
   return {

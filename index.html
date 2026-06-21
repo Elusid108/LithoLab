@@ -294,7 +294,7 @@
             </div>
             <div class="dim-group">
               <span class="dim-label">Border height (mm)</span>
-              <input type="number" id="inpBorderHeight" class="dim-input" step="0.01" min="0" value="1" onchange="onBorderHeightChange()" />
+              <input type="number" id="inpBorderHeight" class="dim-input" step="0.01" min="0" value="3" onchange="onBorderHeightChange()" />
             </div>
           </div>
           <p style="font-size: 11px; color: #888; margin: -4px 0 8px 0">Z-thickness of the white border ring (independent of width).</p>
@@ -317,7 +317,7 @@
           <div class="dim-row">
             <div class="dim-group">
               <span class="dim-label">Plate thickness (mm)</span>
-              <input type="number" id="inpPlateThickness" class="dim-input" step="0.01" value="0.2" />
+              <input type="number" id="inpPlateThickness" class="dim-input" step="0.01" value="0.15" />
             </div>
             <div class="dim-group">
               <span class="dim-label">Color pixel width (mm)</span>
@@ -328,11 +328,11 @@
           <div class="dim-row">
             <div class="dim-group">
               <span class="dim-label">Layer thickness (mm)</span>
-              <input type="number" id="inpLayerThickness" class="dim-input" step="0.01" value="0.1" />
+              <input type="number" id="inpLayerThickness" class="dim-input" step="0.01" value="0.05" />
             </div>
             <div class="dim-group">
               <span class="dim-label">Layer count</span>
-              <input type="number" id="inpLayerCount" class="dim-input" step="1" min="1" value="5" />
+              <input type="number" id="inpLayerCount" class="dim-input" step="1" min="1" value="10" />
             </div>
           </div>
 
@@ -370,17 +370,6 @@
           </div>
           <p style="font-size: 11px; color: #888; margin: -4px 0 4px 0">Smaller = finer detail, larger files. 0.2 mm is a good default.</p>
           <div style="text-align: right; font-size: 11px; color: #888; margin-bottom: 8px" id="exportGridVal">Export grid: 500 × 500 px</div>
-
-          <div class="dim-row">
-            <div class="dim-group">
-              <span class="dim-label">First Layer (mm)</span>
-              <input type="number" id="inpFirstLayer" class="dim-input" step="0.01" min="0.01" value="0.2" />
-            </div>
-            <div class="dim-group">
-              <span class="dim-label">Layer Height (mm)</span>
-              <input type="number" id="inpTextureLayerHeight" class="dim-input" step="0.01" min="0.01" value="0.1" />
-            </div>
-          </div>
 
           <div class="dim-row">
             <div class="dim-group">

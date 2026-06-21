@@ -1552,7 +1552,7 @@ function buildGenInstructionFromState(): GenInstruction {
   g.destImageHeight = state.export.height
   g.texturePixelWidth = ps
 
-  g.plateThickness = readInputFloat('inpFirstLayer', DEFAULT_VALUE_PLATE_THICKNESS)
+  g.plateThickness = readInputFloat('inpPlateThickness', DEFAULT_VALUE_PLATE_THICKNESS)
   g.colorPixelWidth = readInputFloat('inpColorPixelWidth', DEFAULT_VALUE_COLOR_PIXEL_WIDTH)
   g.colorPixelLayerThickness = readInputFloat(
     'inpLayerThickness',

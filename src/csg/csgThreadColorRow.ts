@@ -1,25 +1,21 @@
-import { hasATransparentPixel } from '../util/imageUtil'
-import { packedRgbToRgba, transparentPixel, hasATransparentPixelAsNeighbor } from '../util/colorUtil'
+import { packedRgbToRgba, transparentPixel } from '../util/colorUtil'
 import { cuboidTriangles } from './stl'
 import type { CSGWorkData } from './csgWorkData'
 
 export function runColorRow(csgWorkData: CSGWorkData, y: number): string[] {
   const img = csgWorkData.colorImage!
   const width = img.width
-  const transparentMode = hasATransparentPixel(img)
   const facets: string[] = []
 
   for (const colorName of csgWorkData.hexCode) {
     for (let x = 0; x < width; x++) {
       if (transparentPixel(img, x, y)) continue
-      if (transparentMode && hasATransparentPixelAsNeighbor(img, x, y)) continue
 
       let k = 1
       const pixel = getRgb(img, x, y)
       for (; x + k < width; k++) {
         const pixelNext = getRgb(img, x + k, y)
         if (pixelNext !== pixel) break
-        if (transparentMode && hasATransparentPixelAsNeighbor(img, x + k, y)) break
       }
       k--
 
