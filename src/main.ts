@@ -1771,6 +1771,17 @@ function downloadSource(type: ActiveLayer): void {
   })()
 }
 
+function buildMaskAiPrompt(subject: string): string {
+  const s = subject.trim()
+  return (
+    `A high-contrast, polarized image mask featuring a perfectly solid, continuous white silhouette of ${s}. ` +
+    `This entire silhouette is one unbroken, unblemished white shape with no internal features, holes, ` +
+    `facial details, cutouts, or floating shapes inside. The outer outline is crisp and smooth. ` +
+    `The entire form is seamlessly filled with solid white, set against a pure black background. ` +
+    `No grayscale, no shading, no texture, no gradients. Flat vector-style stencil.`
+  )
+}
+
 function openAiPrompt(mode: string): void {
   const overlay = $('aiPromptOverlay') as HTMLElement | null
   const modeInput = $('aiMode') as HTMLInputElement | null
@@ -1789,8 +1800,8 @@ function openAiPrompt(mode: string): void {
     if (title) title.textContent = '✨ Generate Mask Shape'
     if (desc)
       desc.textContent =
-        'Describe the SHAPE you want (e.g., Heart, Star, Cat Silhouette). The AI will create a B&W stencil.'
-    input.placeholder = 'E.g., A simple silhouette of a cat sitting, vector style...'
+        'Describe the outer shape only (e.g. "bear\'s head and ears", "heart", "star"). The AI will generate a solid B&W mask with no interior cutouts.'
+    input.placeholder = "E.g., a bear's head and ears"
   } else {
     if (title) title.textContent = '✨ Generate Photo'
     if (desc) desc.textContent = 'Describe the full color image you want to print.'
@@ -1816,10 +1827,7 @@ async function confirmGenerateImage(): Promise<void> {
 
   let finalPrompt = prompt
   if (mode === 'mask') {
-    finalPrompt =
-      'A high contrast, black and white stencil silhouette mask image of: ' +
-      prompt +
-      '. White is the object, Black is the background. Sharp hard vector edges. No grayscale shading. Flat design.'
+    finalPrompt = buildMaskAiPrompt(prompt)
   }
 
   const imageOpt = getSelectedImageModelOption()

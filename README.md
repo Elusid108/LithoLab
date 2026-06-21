@@ -15,7 +15,7 @@ Lithophane generation is based on [PIXEstL](https://github.com/gaugo87/PIXEstL) 
 * **Organized Sidebar Layout:** Settings are grouped into **Color Generation** (palette, plate thickness, pixel width, layer count, mode) and **Texture Generation** (pixel size, min/max thickness) sections for a clearer workflow. **Generate Previews** and **Download STLs** are stacked at the bottom.
 * **Border & Export Settings:** Numeric inputs for border **width** (mm), border **height** (mm, Z-thickness of the top ring), and **pixel size** (mm) for precise control without sliders. Default **color pixel width** is **0.4 mm** for finer color detail.
 * **Interactive Editing Workflow:** Upload or AI-generate images, manipulate assets on a canvas with vector mask compositing, generate previews, and export a ready-to-print ZIP archive.
-* **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, high-contrast stencils, and intelligent asset names. Your API key is stored locally in the browser only — never in source code.
+* **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, solid high-contrast mask silhouettes (no interior cutouts), and intelligent asset names. Your API key is stored locally in the browser only — never in source code.
 
 ## Technical Architecture
 * **Frontend/UI:** TypeScript, Vite, HTML5 Canvas API
@@ -39,6 +39,9 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
+
+## v2.5.6 changes
+* **Solid-silhouette mask AI prompt:** Mask generation now wraps the user's subject in a detailed prompt that demands a single unbroken white fill with no internal holes, facial details, cutouts, or floating shapes. This reduces AI-generated interior black regions that previously became mask holes during polygon extraction (e.g. nose/eye cutouts inside a bear silhouette). The modal copy now guides users to describe the outer shape only.
 
 ## v2.5.5 changes
 * **Perimeter cuboid gap fix:** Closed the visible light gap between the lithophane color layers and the border on curved shapes (e.g. circles). Root cause: PIXEstl-era logic in `runColorRow` skipped every pixel with a transparent 4-connected neighbor whenever the image contained any transparency — which is always true after the STL mask stencil. That withheld all mask-boundary color cuboids, leaving color geometry ~1 pixel (`pw`, 0.4 mm default) inside the mask while the vector border inner wall sat on the full mask edge. Fix: emit cuboids for all stencil-kept opaque pixels, including perimeter pixels.
