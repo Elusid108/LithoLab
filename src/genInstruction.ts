@@ -1,5 +1,7 @@
 /** Mirrors ggo.pixestl.generator.GenInstruction */
 
+import type { BorderProfile } from './border/routerPresets'
+
 export const PixelCreationMethod = {
   ADDITIVE: 'ADDITIVE',
   FULL: 'FULL',
@@ -39,6 +41,8 @@ export interface GenInstruction {
   borderHeightMm: number
   /** Inward shift (mm) of both border ring edges; printed width stays unchanged. */
   borderOverlapMm: number
+  /** Optional router cross-section profile (STL sweep — not yet applied). */
+  borderProfile?: BorderProfile | null
 }
 
 export const DEFAULT_VALUE_PLATE_THICKNESS = 0.15

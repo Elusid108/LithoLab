@@ -491,7 +491,7 @@ button:disabled {
 }
 
 /* Modals */
-#progressOverlay, #aiPromptOverlay, #settingsOverlay, #paletteOverlay {
+#progressOverlay, #aiPromptOverlay, #settingsOverlay, #paletteOverlay, #routerOverlay {
     display: none;
     position: fixed;
     top: 0; left: 0; width: 100%; height: 100%;
@@ -806,5 +806,181 @@ textarea {
     color: #e57373;
     font-size: 12px;
     min-height: 16px;
+}
+
+/* --- Router Profile --- */
+.router-actions {
+    display: flex;
+    margin: 6px 0 10px 0;
+}
+.router-actions .palette-action-btn {
+    width: 100%;
+}
+.router-actions .palette-action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: none;
+}
+
+.router-box {
+    width: 760px;
+    max-width: 95vw;
+    max-height: 92vh;
+    background: #2d2d2d;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.router-body {
+    display: flex;
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 12px;
+}
+@media (max-width: 680px) {
+    .router-body {
+        flex-direction: column;
+    }
+}
+.router-presets-panel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.router-editor-panel {
+    flex: 0 0 300px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+@media (max-width: 680px) {
+    .router-editor-panel {
+        flex: 0 0 auto;
+    }
+}
+.router-section-title {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    color: #aaa;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+.router-preset-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    overflow-y: auto;
+    max-height: 360px;
+    padding-right: 4px;
+}
+@media (max-width: 900px) {
+    .router-preset-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+@media (max-width: 680px) {
+    .router-preset-grid {
+        grid-template-columns: repeat(3, 1fr);
+        max-height: 220px;
+    }
+}
+.router-preset-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px;
+    background: #262626;
+    border: 2px solid #3a3a3a;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.router-preset-tile:hover {
+    border-color: #555;
+    background: #2a2a2a;
+}
+.router-preset-tile.selected {
+    border-color: #00d26a;
+    background: #1e2e24;
+}
+.router-preset-thumb {
+    display: block;
+    border-radius: 3px;
+}
+.router-preset-label {
+    font-size: 9px;
+    color: #bbb;
+    text-align: center;
+    line-height: 1.2;
+}
+.router-canvas-wrap {
+    background: #1a1a1a;
+    border: 1px solid #444;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.router-canvas-wrap canvas {
+    display: block;
+    width: 100%;
+    cursor: crosshair;
+}
+.router-tool-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: 8px;
+}
+.router-mode-toggle {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+.router-mode-label {
+    font-size: 10px;
+    color: #888;
+    margin-right: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.router-tool-btn {
+    background: #3a3a3a;
+    color: #ddd;
+    border: 1px solid #555;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    transition: background 0.15s, border-color 0.15s;
+}
+.router-tool-btn:hover {
+    background: #4a4a4a;
+}
+.router-tool-btn.active {
+    background: #1e3a28;
+    border-color: #00d26a;
+    color: #00d26a;
+}
+.router-editor-tools {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.router-editor-tools .palette-action-btn {
+    flex: 1;
+}
+.router-error {
+    color: #e57373;
+    font-size: 11px;
+    min-height: 16px;
+    margin-top: 6px;
 }
 /* --- STYLES END --- */

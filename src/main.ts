@@ -42,6 +42,26 @@ import {
   triggerPaletteImport,
   type PaletteJson,
 } from './palette/paletteManager'
+import {
+  applyRouterProfile,
+  cancelRouterModal,
+  clearRouterDrawing,
+  closeRouterModal,
+  initRouterManager,
+  openRouterModal,
+  refreshRouterCanvasIfOpen,
+  resetRouterToPreset,
+  setRouterTool,
+  setRouterCircleMode,
+  setRouterLineKeep,
+  undoRouterOp,
+  updateRouterButtonState,
+} from './border/routerManager'
+import {
+  loadStoredBorderProfile,
+  saveBorderProfile,
+  type BorderProfile,
+} from './border/routerPresets'
 
 let currentPaletteJson: PaletteJson = loadStoredPalette(
   JSON.parse(JSON.stringify(defaultPalette)) as PaletteJson,
@@ -141,6 +161,24 @@ function initPalette(): void {
     onChange: refreshInlinePalette,
   })
   refreshInlinePalette()
+}
+
+function initRouter(): void {
+  initRouterManager({
+    getBorderDims: () => ({
+      widthMm: state.export.border,
+      heightMm: state.export.borderHeightMm,
+    }),
+    getProfile: () => state.export.borderProfile,
+    setProfile: (profile) => {
+      state.export.borderProfile = profile
+      saveBorderProfile(profile)
+    },
+    onChange: () => {
+      updateRouterButtonState()
+    },
+  })
+  updateRouterButtonState()
 }
 
 // --- CONFIGURATION (LithoLab script.js) ---
@@ -600,6 +638,7 @@ interface AppState {
     pixelSizeMm: number
     borderHeightMm: number
     borderOverlapMm: number
+    borderProfile: BorderProfile | null
   }
   photo: PhotoLayer
   mask: MaskLayer
@@ -653,6 +692,7 @@ const state: AppState = {
     pixelSizeMm: 0.2,
     borderHeightMm: DEFAULT_VALUE_BORDER_HEIGHT_MM,
     borderOverlapMm: DEFAULT_VALUE_BORDER_OVERLAP_MM,
+    borderProfile: loadStoredBorderProfile(),
   },
   photo: {
     img: null,
@@ -1531,11 +1571,15 @@ function syncExportSettingsFromInputs(): void {
 function onBorderWidthChange(): void {
   syncExportSettingsFromInputs()
   updateExportGridReadout()
+  updateRouterButtonState()
+  refreshRouterCanvasIfOpen()
   if (state.pixelData) void generateLayers()
 }
 
 function onBorderHeightChange(): void {
   syncExportSettingsFromInputs()
+  updateRouterButtonState()
+  refreshRouterCanvasIfOpen()
 }
 
 function onBorderOverlapChange(): void {
@@ -1582,6 +1626,7 @@ function buildGenInstructionFromState(): GenInstruction {
   g.colorNumber = Math.max(0, readInputInt('inpMaxColors', 0))
   g.borderHeightMm = state.export.borderHeightMm
   g.borderOverlapMm = state.export.borderOverlapMm
+  g.borderProfile = state.export.borderProfile
   g.textureMinThickness = readInputFloat('inpMinThickness', DEFAULT_VALUE_TEXTURE_MIN_THICKNESS)
   g.textureMaxThickness = readInputFloat('inpMaxThickness', DEFAULT_VALUE_TEXTURE_MAX_THICKNESS)
 
@@ -2233,6 +2278,7 @@ function init(): void {
   }
 
   initPalette()
+  initRouter()
 
   const photoInput = $('photoInput')
   const maskInput = $('maskInput')
@@ -2285,6 +2331,16 @@ function init(): void {
     saveCustomColor,
     togglePaletteEntry,
     addColorFromPicker,
+    openRouterModal,
+    closeRouterModal,
+    cancelRouterModal,
+    applyRouterProfile,
+    clearRouterDrawing,
+    resetRouterToPreset,
+    setRouterTool,
+    setRouterCircleMode,
+    setRouterLineKeep,
+    undoRouterOp,
   })
 }
 
