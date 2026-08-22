@@ -29,6 +29,14 @@ export interface PreviewImages {
   textureImage: ImageData | null
 }
 
+export type PreviewPhase = 'quantize' | 'color-stencil' | 'texture' | 'border'
+
+export interface PreviewProgressEvent {
+  phase: PreviewPhase
+  current: number
+  total: number
+}
+
 /**
  * Build the palette-quantized color preview and the B&W texture preview at
  * the resolutions used by the STL generator (`colorPixelWidth` and
@@ -54,6 +62,7 @@ export async function buildPreviewImages(
   palette: Palette,
   genInstruction: GenInstruction,
   stencilMode: 'preview' | 'stl' = 'preview',
+  onProgress?: (p: PreviewProgressEvent) => void,
 ): Promise<PreviewImages> {
   let colorImage: ImageData | null = null
   let textureImage: ImageData | null = null
@@ -66,7 +75,11 @@ export async function buildPreviewImages(
     const cpw = genInstruction.colorPixelWidth
     const colorCanvas = resizeImage(sourceImage, destW, destH, cpw)
     let colorData = getImageDataFromCanvas(colorCanvas)
-    colorData = await palette.quantizeColors(colorData)
+    colorData = await palette.quantizeColors(colorData, (p) => {
+      onProgress?.({ phase: 'quantize', current: p.current, total: p.total })
+    })
+
+    onProgress?.({ phase: 'color-stencil', current: 0, total: 1 })
 
     // In 'stl' mode, shift the stencil rasterizer origin so its pixel area in
     // world coordinates matches where the cuboid emitter actually places each
@@ -89,6 +102,7 @@ export async function buildPreviewImages(
       stencilMode,
     )
     if (stencilMode === 'preview') {
+      onProgress?.({ phase: 'border', current: 0, total: 1 })
       const { ringInner, ringOuter } = buildBorderRingPolygons(
         maskPolygonMm,
         silhouettePolygonMm,
@@ -107,6 +121,7 @@ export async function buildPreviewImages(
   }
 
   if (genInstruction.textureLayer) {
+    onProgress?.({ phase: 'texture', current: 0, total: 1 })
     const tpw = genInstruction.texturePixelWidth
     const texCanvas = resizeImage(sourceImage, destW, destH, tpw)
     let texData = getImageDataFromCanvas(texCanvas)

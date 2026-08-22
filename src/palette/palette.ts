@@ -12,6 +12,7 @@ import {
 import { getImageDataFromCanvas, resizeImage, rgbaAt, setRgba } from '../util/imageUtil'
 import { ColorCombi } from './colorCombi'
 import { ColorLayer } from './colorLayer'
+import { quantizeImageData } from '../workers/quantizeClient'
 
 function num(obj: Record<string, unknown>, key: string): number {
   const v = obj[key]
@@ -213,45 +214,26 @@ export class Palette {
   }
 
   /**
-   * Quantize image colors; yields to event loop every `chunkRows` rows if > 0.
+   * Quantize image colors on a worker (falls back to the main thread).
    */
-  async quantizeColors(imageData: ImageData, chunkRows = 4): Promise<ImageData> {
-    const width = imageData.width
-    const height = imageData.height
-    const colors = this.getColors()
-    const quantizedImage = new ImageData(width, height)
-    const usedColorList: Rgba[] = []
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (transparentPixel(imageData, x, y)) {
-          setRgba(quantizedImage, x, y, { r: 0, g: 0, b: 0, a: 0 })
-          continue
-        }
-        const pixelColor = rgbaAt(imageData, x, y)
-        const closest = findClosestColor(
-          pixelColor,
-          colors,
-          this.genInstruction.colorDistanceComputation,
-        )
-        const hex = colorToHexCode(closest)
-        if (!usedColorList.some((u) => colorToHexCode(u) === hex)) usedColorList.push(closest)
-        setRgba(quantizedImage, x, y, { ...closest, a: 255 })
-      }
-      if (chunkRows > 0 && y % chunkRows === chunkRows - 1) {
-        await new Promise((r) => requestAnimationFrame(r))
-      }
-    }
-
+  async quantizeColors(
+    imageData: ImageData,
+    onProgress?: (p: { current: number; total: number }) => void,
+  ): Promise<ImageData> {
+    const { image, usedHexes } = await quantizeImageData(
+      imageData,
+      this.getColors(),
+      this.genInstruction.colorDistanceComputation,
+      onProgress,
+    )
     const quantizedColorsTemp = new Map<string, ColorCombi>()
-    for (const c of usedColorList) {
-      const combi = this.quantizedColors.get(colorToHexCode(c))
-      if (combi) quantizedColorsTemp.set(colorToHexCode(c), combi)
+    for (const hex of usedHexes) {
+      const combi = this.quantizedColors.get(hex)
+      if (combi) quantizedColorsTemp.set(hex, combi)
     }
     this.quantizedColors = quantizedColorsTemp
     console.log(`Nb color used=${this.quantizedColors.size}`)
-
-    return quantizedImage
+    return image
   }
 
   private computeColorsByGroup(colorLayerList: ColorLayer[]): void {

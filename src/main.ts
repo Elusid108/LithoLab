@@ -13,7 +13,7 @@ import {
   PixelCreationMethod,
   type GenInstruction,
 } from './genInstruction'
-import { buildPreviewImages, generatePlateZip } from './generator/plateGenerator'
+import { buildPreviewImages, generatePlateZip, type PreviewProgressEvent } from './generator/plateGenerator'
 import { Palette } from './palette/palette'
 import {
   decimatePolygonSet,
@@ -1102,6 +1102,46 @@ function renderHistory(type: ActiveLayer): void {
     wrap.append(thumb, del)
     container.appendChild(wrap)
   }
+  refreshStripArrows(container)
+}
+
+function updateStripArrowState(root: HTMLElement): void {
+  const strip = root.querySelector('.history-strip') as HTMLElement | null
+  const prev = root.querySelector('.strip-arrow[data-dir="-1"]') as HTMLButtonElement | null
+  const next = root.querySelector('.strip-arrow[data-dir="1"]') as HTMLButtonElement | null
+  if (!strip || !prev || !next) return
+  const max = strip.scrollWidth - strip.clientWidth
+  prev.disabled = strip.scrollLeft <= 1
+  next.disabled = max <= 1 || strip.scrollLeft >= max - 1
+}
+
+function refreshStripArrows(strip: HTMLElement): void {
+  const root = strip.closest('.strip-scroller')
+  if (root instanceof HTMLElement) updateStripArrowState(root)
+}
+
+function bindStripScroller(root: HTMLElement): void {
+  const strip = root.querySelector('.history-strip') as HTMLElement | null
+  const prev = root.querySelector('.strip-arrow[data-dir="-1"]') as HTMLButtonElement | null
+  const next = root.querySelector('.strip-arrow[data-dir="1"]') as HTMLButtonElement | null
+  if (!strip || !prev || !next) return
+
+  const step = (): number => Math.max(135, Math.round(strip.clientWidth * 0.75))
+  prev.addEventListener('click', () => {
+    strip.scrollBy({ left: -step(), behavior: 'smooth' })
+  })
+  next.addEventListener('click', () => {
+    strip.scrollBy({ left: step(), behavior: 'smooth' })
+  })
+  strip.addEventListener('scroll', () => updateStripArrowState(root), { passive: true })
+  new ResizeObserver(() => updateStripArrowState(root)).observe(strip)
+  updateStripArrowState(root)
+}
+
+function bindAllStripScrollers(): void {
+  document.querySelectorAll('.strip-scroller').forEach((el) => {
+    if (el instanceof HTMLElement) bindStripScroller(el)
+  })
 }
 
 function addToHistory(
@@ -1566,6 +1606,26 @@ function buildRectifiedScene(): RectifiedScene | null {
   }
 }
 
+function mapPreviewProgress(p: PreviewProgressEvent): void {
+  if (p.phase === 'quantize') {
+    const t = p.total > 0 ? p.current / p.total : 0
+    const pct = 20 + Math.round(t * 60)
+    ui.update(pct, 'Quantizing colors…', `Row ${p.current} / ${p.total}`)
+    return
+  }
+  if (p.phase === 'color-stencil') {
+    ui.update(82, 'Clipping color to mask…', '')
+    return
+  }
+  if (p.phase === 'texture') {
+    ui.update(88, 'Building texture…', '')
+    return
+  }
+  if (p.phase === 'border') {
+    ui.update(93, 'Compositing border…', '')
+  }
+}
+
 async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void> {
   if (!state.photo.loaded) {
     void window.alert('Please upload a Photo first.')
@@ -1597,7 +1657,8 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
     return
   }
 
-  ui.update(25, 'Loading palette…', '')
+  ui.update(10, 'Building color combinations…', '')
+  await new Promise((r) => requestAnimationFrame(r))
   let palette: Palette
   try {
     palette = new Palette(JSON.stringify(currentPaletteJson), gen)
@@ -1615,7 +1676,7 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
     palette.restrictFullColors(scene.composite, gen.colorNumber)
   }
 
-  ui.update(45, 'Quantizing colors…', '')
+  ui.update(20, 'Quantizing colors…', '')
   let previews: { colorImage: ImageData | null; textureImage: ImageData | null }
   try {
     previews = await buildPreviewImages(
@@ -1624,6 +1685,7 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
       palette,
       gen,
       'preview',
+      mapPreviewProgress,
     )
   } catch (e) {
     ui.hide()
@@ -2430,8 +2492,10 @@ function renderDefaultMasks(): void {
     thumb.title = mask.name
     thumb.alt = mask.name
     thumb.addEventListener('click', () => void loadPresetMask(mask.filename))
+    thumb.addEventListener('load', () => refreshStripArrows(container))
     container.appendChild(thumb)
   }
+  refreshStripArrows(container)
 }
 
 function loadPresetMask(filename: string): void {
@@ -2730,6 +2794,7 @@ function init(): void {
   initPalette()
   initRouter()
   renderDefaultMasks()
+  bindAllStripScrollers()
 
   const photoInput = $('photoInput')
   const maskInput = $('maskInput')

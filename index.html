@@ -241,10 +241,13 @@
         </div>
         <div class="header-row">
           <h3>1. Upload Assets</h3>
-          <div class="header-row-actions">
-            <button type="button" class="settings-btn" onclick="openLibrary()">Library</button>
-            <button type="button" class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
-          </div>
+          <button type="button" class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
+        </div>
+        <div class="header-project-actions">
+          <button type="button" class="settings-btn" onclick="openLibrary()">Library</button>
+          <button type="button" class="settings-btn" onclick="exportProject()">Export</button>
+          <button type="button" class="settings-btn" onclick="triggerProjectImport()">Import</button>
+          <input type="file" id="projectImportInput" accept=".litholab,application/zip" hidden />
         </div>
 
         <div class="control-section">
@@ -273,7 +276,11 @@
                   <button type="button" id="btnDownloadGeneratedPhoto" class="dl-btn" title="Download with suggested name">⬇️</button>
                 </div>
               </div>
-              <div id="photoHistory" class="history-strip"></div>
+              <div class="strip-scroller">
+                <button type="button" class="strip-arrow" data-dir="-1" aria-label="Scroll left">‹</button>
+                <div id="photoHistory" class="history-strip"></div>
+                <button type="button" class="strip-arrow" data-dir="1" aria-label="Scroll right">›</button>
+              </div>
             </div>
 
             <div class="upload-card">
@@ -285,7 +292,11 @@
               </div>
               <input type="file" id="maskInput" accept="image/*" />
               <p class="preset-strip-label">Presets</p>
-              <div id="maskPresets" class="history-strip mask-preset-strip"></div>
+              <div class="strip-scroller">
+                <button type="button" class="strip-arrow" data-dir="-1" aria-label="Scroll left">‹</button>
+                <div id="maskPresets" class="history-strip mask-preset-strip"></div>
+                <button type="button" class="strip-arrow" data-dir="1" aria-label="Scroll right">›</button>
+              </div>
               <div class="ai-feature ai-btn-row">
                 <button class="ai-btn" onclick="openAiPrompt('mask')">✨ Generate Mask AI</button>
                 <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
@@ -302,7 +313,11 @@
                   <button type="button" id="btnDownloadGeneratedMask" class="dl-btn" title="Download with suggested name">⬇️</button>
                 </div>
               </div>
-              <div id="maskHistory" class="history-strip"></div>
+              <div class="strip-scroller">
+                <button type="button" class="strip-arrow" data-dir="-1" aria-label="Scroll left">‹</button>
+                <div id="maskHistory" class="history-strip"></div>
+                <button type="button" class="strip-arrow" data-dir="1" aria-label="Scroll right">›</button>
+              </div>
             </div>
           </div>
         </div>
@@ -454,11 +469,6 @@
               <button type="button" class="ai-feature ai-btn-small" onclick="autoNameLithophaneFromPhoto()">✨ Auto Name</button>
             </div>
             <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name..." />
-          </div>
-          <div class="project-file-actions">
-            <button type="button" class="palette-action-btn subtle" onclick="exportProject()">Export Project</button>
-            <button type="button" class="palette-action-btn subtle" onclick="triggerProjectImport()">Import Project</button>
-            <input type="file" id="projectImportInput" accept=".litholab,application/zip" hidden />
           </div>
           <button type="button" class="process-btn" onclick="generateLayers()">GENERATE PREVIEWS</button>
           <button type="button" id="btnDownloadStl" class="process-btn" style="background: #333; color: #888" onclick="exportDownload()" disabled>Download STLs</button>
