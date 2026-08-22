@@ -34,6 +34,7 @@ import {
   loadStoredPalette,
   openPaletteManager,
   resetPaletteToDefault,
+  savePalette,
   saveCustomColor,
   showPaletteCustomView,
   showPaletteMainView,
@@ -62,6 +63,24 @@ import {
   saveBorderProfile,
   type BorderProfile,
 } from './border/routerPresets'
+import { DEFAULT_MASKS, defaultMaskUrl } from './data/defaultMasks'
+import {
+  canvasToPngBlob,
+  downscaleCanvasToJpeg,
+  packProjectZip,
+  unpackProjectZip,
+  type LayerPoseSnapshot,
+  type PackProjectInput,
+  type UnpackedProject,
+} from './project/projectFile'
+import {
+  addLibraryEntry,
+  deleteLibraryEntry,
+  getLibraryZip,
+  isQuotaError,
+  listLibrary,
+} from './project/projectStore'
+import { downloadBlob, extForImageBlob, safeFileName } from './util/fileName'
 
 let currentPaletteJson: PaletteJson = loadStoredPalette(
   JSON.parse(JSON.stringify(defaultPalette)) as PaletteJson,
@@ -571,6 +590,7 @@ interface PhotoLayer {
   loaded: boolean
   isGenerated: boolean
   aspect?: number
+  objectUrl: string | null
 }
 
 interface MaskLayer {
@@ -588,6 +608,7 @@ interface MaskLayer {
   trimW: number
   trimH: number
   isGenerated: boolean
+  objectUrl: string | null
 }
 
 interface LayerPose {
@@ -616,9 +637,20 @@ interface GeneratedPreviewData {
   silhouettePolygonMm: PolygonSet
 }
 
+type HistorySource = 'upload' | 'ai'
+
 interface LayerHistoryEntry {
-  src: string
+  id: string
+  blob: Blob
+  objectUrl: string
   suggestedSlug: string | null
+  source: HistorySource
+}
+
+interface ImageLoadOptions {
+  pose?: LayerPose
+  resetExportDims?: boolean
+  objectUrl?: string | null
 }
 
 interface AppState {
@@ -703,6 +735,7 @@ const state: AppState = {
     rot: 0,
     loaded: false,
     isGenerated: false,
+    objectUrl: null,
   },
   mask: {
     img: null,
@@ -717,6 +750,7 @@ const state: AppState = {
     trimW: 0,
     trimH: 0,
     isGenerated: false,
+    objectUrl: null,
   },
   pixelData: null,
   prompts: { photo: '', mask: '' },
@@ -859,19 +893,48 @@ function extractMaskFromImage(img: HTMLImageElement): MaskExtraction {
   return { polygon: normalized, trimW, trimH }
 }
 
+function revokeLayerObjectUrl(layer: { objectUrl: string | null }): void {
+  if (layer.objectUrl) {
+    URL.revokeObjectURL(layer.objectUrl)
+    layer.objectUrl = null
+  }
+}
+
+function blobFromBase64(base64: string, mime: string): Blob {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime || 'image/png' })
+}
+
+function applyPoseToLayer(
+  layer: { x: number; y: number; w: number; h: number; rot: number },
+  pose: LayerPose,
+): void {
+  layer.x = pose.x
+  layer.y = pose.y
+  layer.w = pose.w
+  layer.h = pose.h
+  layer.rot = pose.rot
+}
+
 function handleImageLoad(
   img: HTMLImageElement,
   mode: ActiveLayer,
   prompt: string | null,
   isGenerated: boolean,
+  opts: ImageLoadOptions = {},
 ): void {
   const cvs = requireCanvas()
   const c = requireCtx()
+  const resetExportDims = opts.resetExportDims !== false
 
   cacheCurrentLayerState(mode)
 
   if (mode === 'mask') {
     const layer = state.mask
+    revokeLayerObjectUrl(layer)
+    layer.objectUrl = opts.objectUrl ?? null
     layer.img = img
     layer.loaded = true
     layer.isGenerated = isGenerated
@@ -883,12 +946,10 @@ function handleImageLoad(
 
     const key = cacheKeyFromSrc(img.src)
     const cached = state.layerCache[key]
-    if (cached) {
-      layer.x = cached.x
-      layer.y = cached.y
-      layer.w = cached.w
-      layer.h = cached.h
-      layer.rot = cached.rot
+    if (opts.pose) {
+      applyPoseToLayer(layer, opts.pose)
+    } else if (cached) {
+      applyPoseToLayer(layer, cached)
     } else {
       layer.w = extracted.trimW
       layer.h = extracted.trimH
@@ -900,9 +961,11 @@ function handleImageLoad(
       layer.y = (cvs.height - layer.h) / 2
     }
 
-    state.export.width = 100
-    state.export.height = 100 / layer.aspect
-    updateInputsFromState()
+    if (resetExportDims) {
+      state.export.width = 100
+      state.export.height = 100 / layer.aspect
+      updateInputsFromState()
+    }
 
     const btnMask = $('btn-mask')
     if (btnMask) btnMask.classList.remove('disabled')
@@ -914,6 +977,8 @@ function handleImageLoad(
     selectLayer('mask')
   } else {
     const layer = state.photo
+    revokeLayerObjectUrl(layer)
+    layer.objectUrl = opts.objectUrl ?? null
     layer.img = img
     layer.loaded = true
     layer.isGenerated = isGenerated
@@ -921,12 +986,10 @@ function handleImageLoad(
 
     const key = cacheKeyFromSrc(img.src)
     const cached = state.layerCache[key]
-    if (cached) {
-      layer.x = cached.x
-      layer.y = cached.y
-      layer.w = cached.w
-      layer.h = cached.h
-      layer.rot = cached.rot
+    if (opts.pose) {
+      applyPoseToLayer(layer, opts.pose)
+    } else if (cached) {
+      applyPoseToLayer(layer, cached)
     } else {
       layer.rot = 0
       const padding = 40
@@ -945,9 +1008,11 @@ function handleImageLoad(
       state.mask.h = layer.h
       state.mask.x = layer.x
       state.mask.y = layer.y
-      state.export.width = 100
-      state.export.height = 100 / (layer.aspect ?? 1)
-      updateInputsFromState()
+      if (resetExportDims) {
+        state.export.width = 100
+        state.export.height = 100 / (layer.aspect ?? 1)
+        updateInputsFromState()
+      }
       selectLayer('photo')
     }
     if (prompt) {
@@ -970,8 +1035,8 @@ function handleImageLoad(
   render(true, c)
 }
 
-function patchHistorySuggestedSlug(type: ActiveLayer, src: string, slug: string): void {
-  const entry = state.history[type].find((h) => h.src === src)
+function patchHistorySuggestedSlug(type: ActiveLayer, id: string, slug: string): void {
+  const entry = state.history[type].find((h) => h.id === id)
   if (entry) entry.suggestedSlug = slug
 }
 
@@ -1012,48 +1077,83 @@ function syncActiveGeneratedUi(
   }
 }
 
-function addToHistory(
-  imgSrc: string,
-  type: ActiveLayer,
-  suggestedSlug: string | null = null,
-): void {
-  state.history[type].unshift({ src: imgSrc, suggestedSlug })
-  if (state.history[type].length > 5) state.history[type].pop()
-
+function renderHistory(type: ActiveLayer): void {
   const container = $(`${type}History`)
   if (!container) return
   container.replaceChildren()
 
   for (const entry of state.history[type]) {
+    const wrap = document.createElement('div')
+    wrap.className = 'history-thumb-wrap'
     const thumb = document.createElement('img')
-    thumb.src = entry.src
+    thumb.src = entry.objectUrl
     thumb.className = 'history-thumb'
-    thumb.addEventListener('click', () => {
-      if (type === 'photo') state.lastGeneratedPhotoName = entry.suggestedSlug
-      else state.lastGeneratedMaskName = entry.suggestedSlug
-      const img = new Image()
-      img.onload = () => handleImageLoad(img, type, 'Restored Image', true)
-      img.src = entry.src
+    thumb.alt = entry.suggestedSlug ?? type
+    thumb.addEventListener('click', () => restoreHistoryEntry(type, entry))
+    const del = document.createElement('button')
+    del.type = 'button'
+    del.className = 'history-thumb-del'
+    del.title = 'Remove'
+    del.textContent = '×'
+    del.addEventListener('click', (e) => {
+      e.stopPropagation()
+      removeHistoryEntry(type, entry.id)
     })
-    container.appendChild(thumb)
+    wrap.append(thumb, del)
+    container.appendChild(wrap)
   }
+}
+
+function addToHistory(
+  blob: Blob,
+  type: ActiveLayer,
+  meta: { source: HistorySource; suggestedSlug?: string | null } = { source: 'upload' },
+): string {
+  const id = crypto.randomUUID()
+  const objectUrl = URL.createObjectURL(blob)
+  state.history[type].unshift({
+    id,
+    blob,
+    objectUrl,
+    suggestedSlug: meta.suggestedSlug ?? null,
+    source: meta.source,
+  })
+  renderHistory(type)
+  return id
+}
+
+function removeHistoryEntry(type: ActiveLayer, id: string): void {
+  const i = state.history[type].findIndex((h) => h.id === id)
+  if (i < 0) return
+  const [entry] = state.history[type].splice(i, 1)
+  URL.revokeObjectURL(entry.objectUrl)
+  renderHistory(type)
+}
+
+function restoreHistoryEntry(type: ActiveLayer, entry: LayerHistoryEntry): void {
+  if (entry.source === 'ai') {
+    if (type === 'photo') state.lastGeneratedPhotoName = entry.suggestedSlug
+    else state.lastGeneratedMaskName = entry.suggestedSlug
+  }
+  const url = URL.createObjectURL(entry.blob)
+  const img = new Image()
+  img.onload = () =>
+    handleImageLoad(img, type, null, entry.source === 'ai', { objectUrl: url })
+  img.onerror = () => URL.revokeObjectURL(url)
+  img.src = url
 }
 
 function loadLayer(e: Event, type: ActiveLayer): void {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = (event) => {
-    const result = event.target?.result
-    if (typeof result !== 'string') return
-    const img = new Image()
-    img.onload = () => {
-      handleImageLoad(img, type, null, false)
-    }
-    img.src = result
-  }
-  reader.readAsDataURL(file)
+  const suggested = file.name.replace(/\.[^.]+$/, '') || null
+  addToHistory(file, type, { source: 'upload', suggestedSlug: suggested })
+  const url = URL.createObjectURL(file)
+  const img = new Image()
+  img.onload = () => handleImageLoad(img, type, null, false, { objectUrl: url })
+  img.onerror = () => URL.revokeObjectURL(url)
+  img.src = url
 }
 
 function selectLayer(layer: ActiveLayer): void {
@@ -1466,7 +1566,7 @@ function buildRectifiedScene(): RectifiedScene | null {
   }
 }
 
-async function generateLayers(): Promise<void> {
+async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void> {
   if (!state.photo.loaded) {
     void window.alert('Please upload a Photo first.')
     return
@@ -1546,6 +1646,10 @@ async function generateLayers(): Promise<void> {
 
   ui.update(100, 'Done', '')
   ui.hide()
+
+  if (opts?.saveToLibrary !== false) {
+    void saveCurrentToLibrary()
+  }
 }
 
 function syncExportSettingsFromInputs(): void {
@@ -1573,7 +1677,7 @@ function onBorderWidthChange(): void {
   updateExportGridReadout()
   updateRouterButtonState()
   refreshRouterCanvasIfOpen()
-  if (state.pixelData) void generateLayers()
+  if (state.pixelData) void generateLayers({ saveToLibrary: false })
 }
 
 function onBorderHeightChange(): void {
@@ -1585,13 +1689,13 @@ function onBorderHeightChange(): void {
 function onBorderOverlapChange(): void {
   syncExportSettingsFromInputs()
   updateExportGridReadout()
-  if (state.pixelData) void generateLayers()
+  if (state.pixelData) void generateLayers({ saveToLibrary: false })
 }
 
 function onPixelSizeChange(): void {
   syncExportSettingsFromInputs()
   updateExportGridReadout()
-  if (state.pixelData) void generateLayers()
+  if (state.pixelData) void generateLayers({ saveToLibrary: false })
 }
 
 function readInputFloat(id: string, fallback: number): number {
@@ -1721,6 +1825,7 @@ function saveSettings(): void {
 
 function clearLayer(type: ActiveLayer): void {
   if (type === 'photo') {
+    revokeLayerObjectUrl(state.photo)
     state.photo = {
       img: null,
       x: 0,
@@ -1730,6 +1835,7 @@ function clearLayer(type: ActiveLayer): void {
       rot: 0,
       loaded: false,
       isGenerated: false,
+      objectUrl: null,
     }
     const photoInput = $('photoInput') as HTMLInputElement | null
     if (photoInput) photoInput.value = ''
@@ -1738,6 +1844,7 @@ function clearLayer(type: ActiveLayer): void {
     syncActiveGeneratedUi('photo', false, null)
     invalidatePreviews()
   } else if (type === 'mask') {
+    revokeLayerObjectUrl(state.mask)
     state.mask = {
       img: null,
       x: 0,
@@ -1751,6 +1858,7 @@ function clearLayer(type: ActiveLayer): void {
       trimW: 0,
       trimH: 0,
       isGenerated: false,
+      objectUrl: null,
     }
     const maskInput = $('maskInput') as HTMLInputElement | null
     if (maskInput) maskInput.value = ''
@@ -1997,8 +2105,8 @@ async function confirmGenerateImage(): Promise<void> {
       }
     }
 
-    const imgSrc = `data:${imageMime};base64,${base64}`
-    addToHistory(imgSrc, mode, null)
+    const blob = blobFromBase64(base64, imageMime)
+    const histId = addToHistory(blob, mode, { source: 'ai' })
 
     void (async () => {
       try {
@@ -2014,22 +2122,24 @@ async function confirmGenerateImage(): Promise<void> {
           const el = $('generatedMaskNameDisplay')
           if (el) el.textContent = `${slug}.png`
         }
-        patchHistorySuggestedSlug(mode, imgSrc, slug)
+        patchHistorySuggestedSlug(mode, histId, slug)
       } catch (e) {
         console.error('Auto-naming generated asset failed:', e)
       }
     })()
 
+    const url = URL.createObjectURL(blob)
     const img = new Image()
     img.onload = () => {
-      handleImageLoad(img, mode, prompt, true)
+      handleImageLoad(img, mode, prompt, true, { objectUrl: url })
       ui.hide()
     }
     img.onerror = () => {
+      URL.revokeObjectURL(url)
       void window.alert('Failed to decode generated image.')
       ui.hide()
     }
-    img.src = imgSrc
+    img.src = url
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     ui.update(0, 'Error', msg)
@@ -2117,6 +2227,338 @@ async function autoNameLithophaneFromPhoto(): Promise<void> {
   }
 }
 
+function lithophaneName(): string {
+  const el = $('fileNameInput') as HTMLInputElement | null
+  return el?.value.trim() || 'MyLithophane'
+}
+
+function poseOf(layer: { x: number; y: number; w: number; h: number; rot: number }): LayerPoseSnapshot {
+  return { x: layer.x, y: layer.y, w: layer.w, h: layer.h, rot: layer.rot }
+}
+
+async function blobFromLayerImg(img: HTMLImageElement): Promise<Blob> {
+  const r = await fetch(img.src)
+  if (!r.ok) throw new Error('Could not read image data.')
+  return r.blob()
+}
+
+function setInputValue(id: string, value: string | number): void {
+  const el = $(id) as HTMLInputElement | HTMLSelectElement | null
+  if (el) el.value = String(value)
+}
+
+async function collectPackInput(): Promise<PackProjectInput> {
+  syncExportSettingsFromInputs()
+  let photo: PackProjectInput['photo'] = null
+  if (state.photo.loaded && state.photo.img) {
+    photo = { blob: await blobFromLayerImg(state.photo.img), pose: poseOf(state.photo) }
+  }
+  let mask: PackProjectInput['mask'] = null
+  if (state.mask.loaded && state.mask.img) {
+    mask = { blob: await blobFromLayerImg(state.mask.img), pose: poseOf(state.mask) }
+  }
+  const modeSel = $('selPixelMode') as HTMLSelectElement | null
+  const distSel = $('selColorDistance') as HTMLSelectElement | null
+  return {
+    name: lithophaneName(),
+    unit: state.unit,
+    export: {
+      width: state.export.width,
+      height: state.export.height,
+      border: state.export.border,
+      pixelSizeMm: state.export.pixelSizeMm,
+      borderHeightMm: state.export.borderHeightMm,
+      borderOverlapMm: state.export.borderOverlapMm,
+      borderProfile: state.export.borderProfile,
+    },
+    generation: {
+      plateThickness: readInputFloat('inpPlateThickness', DEFAULT_VALUE_PLATE_THICKNESS),
+      colorPixelWidth: readInputFloat('inpColorPixelWidth', DEFAULT_VALUE_COLOR_PIXEL_WIDTH),
+      layerThickness: readInputFloat(
+        'inpLayerThickness',
+        DEFAULT_VALUE_COLOR_PIXEL_LAYER_THICKNESS,
+      ),
+      layerCount: readInputInt('inpLayerCount', DEFAULT_VALUE_COLOR_LAYER_NUMBER),
+      pixelMode: modeSel?.value ?? PixelCreationMethod.ADDITIVE,
+      colorDistance: distSel?.value ?? ColorDistanceComputation.CIELab,
+      maxColors: Math.max(0, readInputInt('inpMaxColors', 0)),
+      minThickness: readInputFloat('inpMinThickness', DEFAULT_VALUE_TEXTURE_MIN_THICKNESS),
+      maxThickness: readInputFloat('inpMaxThickness', DEFAULT_VALUE_TEXTURE_MAX_THICKNESS),
+    },
+    palette: currentPaletteJson,
+    photo,
+    mask,
+  }
+}
+
+async function packCurrentProject(): Promise<Blob> {
+  return packProjectZip(await collectPackInput())
+}
+
+function loadBlobAsLayer(
+  blob: Blob,
+  type: ActiveLayer,
+  pose: LayerPose | undefined,
+  isGenerated: boolean,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      handleImageLoad(img, type, null, isGenerated, {
+        pose,
+        resetExportDims: false,
+        objectUrl: url,
+      })
+      resolve()
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Failed to decode image'))
+    }
+    img.src = url
+  })
+}
+
+async function applyUnpackedProject(unpacked: UnpackedProject): Promise<void> {
+  clearLayer('photo')
+  clearLayer('mask')
+  const json = unpacked.json
+
+  const nameEl = $('fileNameInput') as HTMLInputElement | null
+  if (nameEl) nameEl.value = json.name || 'MyLithophane'
+
+  state.unit = json.unit === 'in' ? 'in' : 'mm'
+  const unitSelect = $('unitSelect') as HTMLSelectElement | null
+  if (unitSelect) unitSelect.value = state.unit
+
+  if (json.export) {
+    state.export.width = json.export.width
+    state.export.height = json.export.height
+    state.export.border = json.export.border
+    state.export.pixelSizeMm = json.export.pixelSizeMm
+    state.export.borderHeightMm = json.export.borderHeightMm
+    state.export.borderOverlapMm = json.export.borderOverlapMm
+    state.export.borderProfile = json.export.borderProfile ?? null
+    saveBorderProfile(state.export.borderProfile)
+    setInputValue('inpBorderWidth', state.export.border)
+    setInputValue('inpBorderHeight', state.export.borderHeightMm)
+    setInputValue('inpBorderOverlap', state.export.borderOverlapMm)
+    setInputValue('inpPixelSize', state.export.pixelSizeMm)
+  }
+
+  const g = json.generation
+  if (g) {
+    setInputValue('inpPlateThickness', g.plateThickness)
+    setInputValue('inpColorPixelWidth', g.colorPixelWidth)
+    setInputValue('inpLayerThickness', g.layerThickness)
+    setInputValue('inpLayerCount', g.layerCount)
+    setInputValue('inpMaxColors', g.maxColors)
+    setInputValue('inpMinThickness', g.minThickness)
+    setInputValue('inpMaxThickness', g.maxThickness)
+    const modeSel = $('selPixelMode') as HTMLSelectElement | null
+    if (modeSel && g.pixelMode) modeSel.value = g.pixelMode
+    const distSel = $('selColorDistance') as HTMLSelectElement | null
+    if (distSel && g.colorDistance) distSel.value = g.colorDistance
+  }
+
+  if (json.palette && typeof json.palette === 'object') {
+    currentPaletteJson = json.palette
+    savePalette(currentPaletteJson)
+    refreshInlinePalette()
+  }
+
+  updateRouterButtonState()
+  updateInputsFromState()
+  updateExportGridReadout()
+
+  if (unpacked.photoBlob) {
+    await loadBlobAsLayer(unpacked.photoBlob, 'photo', json.photo?.pose, false)
+  }
+  if (unpacked.maskBlob) {
+    await loadBlobAsLayer(unpacked.maskBlob, 'mask', json.mask?.pose, false)
+  }
+
+  if (json.export) {
+    state.export.width = json.export.width
+    state.export.height = json.export.height
+    updateInputsFromState()
+    updateExportGridReadout()
+  }
+
+  invalidatePreviews()
+  render()
+}
+
+async function exportProject(): Promise<void> {
+  try {
+    const blob = await packCurrentProject()
+    downloadBlob(blob, `${safeFileName(lithophaneName())}.litholab`)
+  } catch (e) {
+    console.error(e)
+    void window.alert(e instanceof Error ? e.message : String(e))
+  }
+}
+
+function triggerProjectImport(): void {
+  $('projectImportInput')?.click()
+}
+
+async function importProjectFile(file: File): Promise<void> {
+  try {
+    ui.show()
+    ui.update(40, 'Opening project…', '')
+    const unpacked = await unpackProjectZip(file)
+    await applyUnpackedProject(unpacked)
+    ui.update(100, 'Done', '')
+  } catch (e) {
+    console.error(e)
+    void window.alert(e instanceof Error ? e.message : String(e))
+  } finally {
+    ui.hide()
+  }
+}
+
+function renderDefaultMasks(): void {
+  const container = $('maskPresets')
+  if (!container) return
+  container.replaceChildren()
+  for (const mask of DEFAULT_MASKS) {
+    const thumb = document.createElement('img')
+    thumb.src = defaultMaskUrl(mask.filename)
+    thumb.className = 'history-thumb'
+    thumb.title = mask.name
+    thumb.alt = mask.name
+    thumb.addEventListener('click', () => void loadPresetMask(mask.filename))
+    container.appendChild(thumb)
+  }
+}
+
+function loadPresetMask(filename: string): void {
+  const url = defaultMaskUrl(filename)
+  const img = new Image()
+  img.onload = () => handleImageLoad(img, 'mask', null, false)
+  img.onerror = () => void window.alert(`Could not load preset mask (${filename}).`)
+  img.src = url
+}
+
+let libraryThumbUrls: string[] = []
+
+function openLibrary(): void {
+  const overlay = $('libraryOverlay')
+  if (overlay) overlay.style.display = 'flex'
+  void refreshLibraryGrid()
+}
+
+function closeLibrary(): void {
+  const overlay = $('libraryOverlay')
+  if (overlay) overlay.style.display = 'none'
+}
+
+async function refreshLibraryGrid(): Promise<void> {
+  const grid = $('libraryGrid')
+  const empty = $('libraryEmpty')
+  if (!grid || !empty) return
+  for (const u of libraryThumbUrls) URL.revokeObjectURL(u)
+  libraryThumbUrls = []
+  grid.replaceChildren()
+
+  let items
+  try {
+    items = await listLibrary()
+  } catch (e) {
+    console.error(e)
+    empty.textContent = 'Could not read the library.'
+    empty.classList.add('visible')
+    return
+  }
+
+  if (items.length === 0) {
+    empty.textContent = 'Generate previews to save a lithophane here.'
+    empty.classList.add('visible')
+    return
+  }
+  empty.classList.remove('visible')
+
+  for (const item of items) {
+    const card = document.createElement('div')
+    card.className = 'library-card'
+    const img = document.createElement('img')
+    const thumbUrl = URL.createObjectURL(item.thumbnail)
+    libraryThumbUrls.push(thumbUrl)
+    img.src = thumbUrl
+    img.alt = item.name
+    const name = document.createElement('p')
+    name.className = 'library-card-name'
+    name.textContent = item.name
+    const date = document.createElement('p')
+    date.className = 'library-card-date'
+    date.textContent = new Date(item.createdAt).toLocaleString()
+    const del = document.createElement('button')
+    del.type = 'button'
+    del.className = 'library-card-del'
+    del.title = 'Delete'
+    del.textContent = '×'
+    del.addEventListener('click', (e) => {
+      e.stopPropagation()
+      void (async () => {
+        try {
+          await deleteLibraryEntry(item.id)
+          await refreshLibraryGrid()
+        } catch (err) {
+          console.error(err)
+          void window.alert('Could not delete that library entry.')
+        }
+      })()
+    })
+    card.addEventListener('click', () => void restoreLibraryEntry(item.id))
+    card.append(img, name, date, del)
+    grid.appendChild(card)
+  }
+}
+
+async function restoreLibraryEntry(id: string): Promise<void> {
+  try {
+    ui.show()
+    ui.update(40, 'Restoring…', '')
+    const zip = await getLibraryZip(id)
+    if (!zip) throw new Error('Library entry not found.')
+    const unpacked = await unpackProjectZip(zip)
+    await applyUnpackedProject(unpacked)
+    closeLibrary()
+  } catch (e) {
+    console.error(e)
+    void window.alert(e instanceof Error ? e.message : String(e))
+  } finally {
+    ui.hide()
+  }
+}
+
+async function saveCurrentToLibrary(): Promise<void> {
+  if (!state.pixelData) return
+  try {
+    const litholabZip = await packCurrentProject()
+    const thumbnail = await downscaleCanvasToJpeg(state.pixelData.rectifiedComposite)
+    await addLibraryEntry({
+      name: lithophaneName(),
+      createdAt: Date.now(),
+      thumbnail,
+      litholabZip,
+    })
+  } catch (e) {
+    console.error(e)
+    if (isQuotaError(e)) {
+      void window.alert(
+        'Could not save this lithophane to the Library (browser storage is full). Export the project file as a backup, or delete older library entries.',
+      )
+    } else {
+      void window.alert(
+        `Could not save to Library: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    }
+  }
+}
+
 async function exportDownload(): Promise<void> {
   if (!state.pixelData) {
     void window.alert('Generate previews first.')
@@ -2128,6 +2570,22 @@ async function exportDownload(): Promise<void> {
     const gen = buildGenInstructionFromState()
     gen.destImageWidth = state.pixelData.widthMm
     gen.destImageHeight = state.pixelData.heightMm
+    ui.update(12, 'Packing project…', '')
+    const base = safeFileName(lithophaneName())
+    const extraFiles: Record<string, Blob> = {}
+    extraFiles[`${base}.litholab`] = await packCurrentProject()
+    if (state.photo.loaded && state.photo.img) {
+      const photoBlob = await blobFromLayerImg(state.photo.img)
+      extraFiles[`original-photo.${extForImageBlob(photoBlob)}`] = photoBlob
+    }
+    if (state.mask.loaded && state.mask.img) {
+      const maskBlob = await blobFromLayerImg(state.mask.img)
+      extraFiles[`original-mask.${extForImageBlob(maskBlob)}`] = maskBlob
+    }
+    extraFiles['original-masked.png'] = await canvasToPngBlob(
+      state.pixelData.rectifiedComposite,
+    )
+
     ui.update(18, 'Generating ZIP…', '')
     const zipBlob = await generatePlateZip(
       state.pixelData.rectifiedComposite,
@@ -2138,22 +2596,14 @@ async function exportDownload(): Promise<void> {
           maskPolygonMm: state.pixelData.maskPolygonMm,
           silhouettePolygonMm: state.pixelData.silhouettePolygonMm,
         },
+        extraFiles,
         onProgress: (p) => {
           const pct = p.total > 0 ? 18 + Math.round((p.current / p.total) * 77) : 50
           ui.update(Math.min(96, Math.max(18, pct)), p.phase, '')
         },
       },
     )
-    const fnameInput = $('fileNameInput') as HTMLInputElement | null
-    const base =
-      (fnameInput?.value || 'Lithophane').replace(/[^a-z0-9]/gi, '_') || 'Lithophane'
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(zipBlob)
-    a.download = `${base}.zip`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(a.href)
+    downloadBlob(zipBlob, `${base}.zip`)
     ui.update(100, 'Done', '')
   } catch (e) {
     console.error(e)
@@ -2279,11 +2729,22 @@ function init(): void {
 
   initPalette()
   initRouter()
+  renderDefaultMasks()
 
   const photoInput = $('photoInput')
   const maskInput = $('maskInput')
   if (photoInput) photoInput.addEventListener('change', (e) => loadLayer(e, 'photo'))
   if (maskInput) maskInput.addEventListener('change', (e) => loadLayer(e, 'mask'))
+
+  const projectImport = $('projectImportInput') as HTMLInputElement | null
+  if (projectImport) {
+    projectImport.addEventListener('change', (e) => {
+      const input = e.target as HTMLInputElement
+      const file = input.files?.[0]
+      if (file) void importProjectFile(file)
+      input.value = ''
+    })
+  }
 
   const btnDlGenPhoto = $('btnDownloadGeneratedPhoto')
   if (btnDlGenPhoto) {
@@ -2319,6 +2780,10 @@ function init(): void {
     onPixelSizeChange,
     generateLayers,
     exportDownload,
+    exportProject,
+    triggerProjectImport,
+    openLibrary,
+    closeLibrary,
     autoNameLithophaneFromPhoto,
     openPaletteManager,
     closePaletteManager,

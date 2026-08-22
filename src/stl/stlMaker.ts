@@ -133,6 +133,7 @@ export async function buildZip(
     onProgress?: ProgressFn
     signal?: AbortSignal
     rowChunk?: number
+    extraFiles?: Record<string, Blob>
   },
 ): Promise<Blob> {
   const { onProgress, signal, rowChunk = 2 } = options
@@ -193,6 +194,11 @@ export async function buildZip(
   }
   if (options.previewTexturePng) {
     zip.file('image-texture-preview.png', options.previewTexturePng)
+  }
+  if (options.extraFiles) {
+    for (const [name, blob] of Object.entries(options.extraFiles)) {
+      zip.file(name, blob)
+    }
   }
 
   checkAbort()

@@ -212,6 +212,19 @@
       </div>
     </div>
 
+    <!-- Library Overlay -->
+    <div id="libraryOverlay">
+      <div class="library-box">
+        <div class="palette-header">
+          <h3 class="palette-title">LIBRARY</h3>
+          <button type="button" class="palette-close" onclick="closeLibrary()" title="Close">&times;</button>
+        </div>
+        <p class="palette-help">Saved when you generate previews. Click a lithophane to restore it.</p>
+        <div id="libraryGrid" class="library-grid"></div>
+        <p id="libraryEmpty" class="library-empty visible">Generate previews to save a lithophane here.</p>
+      </div>
+    </div>
+
     <div class="app-container">
       <!-- SIDEBAR -->
       <div class="sidebar">
@@ -228,7 +241,10 @@
         </div>
         <div class="header-row">
           <h3>1. Upload Assets</h3>
-          <button class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
+          <div class="header-row-actions">
+            <button type="button" class="settings-btn" onclick="openLibrary()">Library</button>
+            <button type="button" class="settings-btn" onclick="openSettings()">⚙️ Settings</button>
+          </div>
         </div>
 
         <div class="control-section">
@@ -257,7 +273,7 @@
                   <button type="button" id="btnDownloadGeneratedPhoto" class="dl-btn" title="Download with suggested name">⬇️</button>
                 </div>
               </div>
-              <div id="photoHistory" class="history-strip ai-feature"></div>
+              <div id="photoHistory" class="history-strip"></div>
             </div>
 
             <div class="upload-card">
@@ -268,6 +284,8 @@
                 Mask (Optional)
               </div>
               <input type="file" id="maskInput" accept="image/*" />
+              <p class="preset-strip-label">Presets</p>
+              <div id="maskPresets" class="history-strip mask-preset-strip"></div>
               <div class="ai-feature ai-btn-row">
                 <button class="ai-btn" onclick="openAiPrompt('mask')">✨ Generate Mask AI</button>
                 <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
@@ -284,7 +302,7 @@
                   <button type="button" id="btnDownloadGeneratedMask" class="dl-btn" title="Download with suggested name">⬇️</button>
                 </div>
               </div>
-              <div id="maskHistory" class="history-strip ai-feature"></div>
+              <div id="maskHistory" class="history-strip"></div>
             </div>
           </div>
         </div>
@@ -307,14 +325,6 @@
         <!-- Section 3: Settings -->
         <div class="control-section">
           <h3>3. Lithophane Settings</h3>
-
-          <div class="input-group">
-            <div style="display: flex; justify-content: space-between; align-items: center">
-              <label style="margin: 0">Lithophane Name</label>
-              <button class="ai-feature ai-btn-small" onclick="autoNameLithophaneFromPhoto()">✨ Auto Name</button>
-            </div>
-            <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name..." />
-          </div>
 
           <div class="dim-row">
             <div class="dim-group">
@@ -438,8 +448,20 @@
         </div>
 
         <div class="export-row" style="display: flex; flex-direction: column; gap: 10px">
-          <button class="process-btn" onclick="generateLayers()">GENERATE PREVIEWS</button>
-          <button id="btnDownloadStl" class="process-btn" style="background: #333; color: #888" onclick="exportDownload()" disabled>Download STLs</button>
+          <div class="input-group" style="margin-bottom: 0">
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <label style="margin: 0">Lithophane Name</label>
+              <button type="button" class="ai-feature ai-btn-small" onclick="autoNameLithophaneFromPhoto()">✨ Auto Name</button>
+            </div>
+            <input type="text" id="fileNameInput" class="text-input" value="MyLithophane" placeholder="Enter name..." />
+          </div>
+          <div class="project-file-actions">
+            <button type="button" class="palette-action-btn subtle" onclick="exportProject()">Export Project</button>
+            <button type="button" class="palette-action-btn subtle" onclick="triggerProjectImport()">Import Project</button>
+            <input type="file" id="projectImportInput" accept=".litholab,application/zip" hidden />
+          </div>
+          <button type="button" class="process-btn" onclick="generateLayers()">GENERATE PREVIEWS</button>
+          <button type="button" id="btnDownloadStl" class="process-btn" style="background: #333; color: #888" onclick="exportDownload()" disabled>Download STLs</button>
         </div>
       </div>
 

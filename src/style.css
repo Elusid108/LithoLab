@@ -55,6 +55,11 @@ body {
     align-items: center;
     margin-bottom: 10px;
 }
+.header-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
 
 .settings-btn {
     background: transparent;
@@ -213,6 +218,21 @@ input[type="file"] {
     overflow-x: auto;
     margin-top: 10px;
     padding-bottom: 5px;
+    flex-wrap: nowrap;
+}
+.preset-strip-label {
+    font-size: 11px;
+    color: #888;
+    margin: 10px 0 0 0;
+}
+.mask-preset-strip {
+    margin-top: 6px;
+}
+.history-thumb-wrap {
+    position: relative;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
 }
 .history-thumb {
     width: 40px; height: 40px;
@@ -220,9 +240,37 @@ input[type="file"] {
     border: 1px solid #444;
     cursor: pointer;
     object-fit: cover;
+    display: block;
     flex-shrink: 0;
 }
 .history-thumb:hover { border-color: #fff; }
+.history-thumb-del {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: none;
+    background: #ff4444;
+    color: #fff;
+    font-size: 11px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+}
+.history-thumb-del:hover { background: #cc0000; }
+.project-file-actions {
+    display: flex;
+    gap: 6px;
+}
+.project-file-actions .palette-action-btn {
+    flex: 1;
+}
 
 /* Layer Selector */
 .layer-select { 
@@ -491,7 +539,7 @@ button:disabled {
 }
 
 /* Modals */
-#progressOverlay, #aiPromptOverlay, #settingsOverlay, #paletteOverlay, #routerOverlay {
+#progressOverlay, #aiPromptOverlay, #settingsOverlay, #paletteOverlay, #routerOverlay, #libraryOverlay {
     display: none;
     position: fixed;
     top: 0; left: 0; width: 100%; height: 100%;
@@ -983,4 +1031,95 @@ textarea {
     min-height: 16px;
     margin-top: 6px;
 }
+
+.library-box {
+    width: 720px;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: #2d2d2d;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+    overflow-y: auto;
+    min-height: 0;
+    flex: 1;
+    padding: 4px 2px 8px;
+}
+.library-card {
+    position: relative;
+    background: #232323;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.library-card:hover {
+    border-color: #00d26a;
+    background: #2a2a2a;
+}
+.library-card img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: contain;
+    border-radius: 4px;
+    background:
+        linear-gradient(45deg, #333 25%, transparent 25%),
+        linear-gradient(-45deg, #333 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #333 75%),
+        linear-gradient(-45deg, transparent 75%, #333 75%);
+    background-size: 12px 12px;
+    background-color: #1a1a1a;
+    display: block;
+}
+.library-card-name {
+    margin: 8px 0 2px;
+    font-size: 12px;
+    color: #eee;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.library-card-date {
+    margin: 0;
+    font-size: 10px;
+    color: #888;
+}
+.library-card-del {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: none;
+    background: #ff4444;
+    color: #fff;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.library-card-del:hover { background: #cc0000; }
+.library-empty {
+    display: none;
+    text-align: center;
+    color: #888;
+    font-size: 13px;
+    padding: 40px 10px;
+    margin: 0;
+}
+.library-empty.visible { display: block; }
+.library-grid:empty { display: none; }
 /* --- STYLES END --- */

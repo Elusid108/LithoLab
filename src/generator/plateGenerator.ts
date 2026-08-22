@@ -21,6 +21,7 @@ export interface PlateGeneratorOptions {
   signal?: AbortSignal
   /** Required: vector silhouette in mm space matching the rectified source image. */
   polygons: SilhouettePolygons
+  extraFiles?: Record<string, Blob>
 }
 
 export interface PreviewImages {
@@ -195,6 +196,7 @@ export async function generatePlateZip(
     polygons,
     onProgress: options.onProgress,
     signal: options.signal,
+    extraFiles: options.extraFiles,
   })
 }
 
