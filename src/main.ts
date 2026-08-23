@@ -28,7 +28,7 @@ import {
   transformPolygonSet,
   type PolygonSet,
 } from './util/maskPolygon'
-import defaultPalette from '../palette/CMYK-0.10mm.json' with { type: 'json' }
+import defaultPalette from '../palette/0.05mm_10layer_9 colors.json' with { type: 'json' }
 import {
   addColorFromPicker,
   closePaletteManager,
@@ -49,12 +49,14 @@ import {
 import { DEFAULT_MASKS, defaultMaskUrl } from './data/defaultMasks'
 import {
   buildOutpaintPrompt,
+  buildOutpaintRetryPrompt,
   compositeOutpaintResult,
   loadHtmlImage,
+  outpaintPadLooksSmeared,
   prepareOutpaintRequest,
 } from './ai/outpaint'
 import { flipImage, imageDataToCanvas, imageDataToPngBlob } from './util/imageUtil'
-import { decodeImportedImage } from './util/imageImport'
+import { decodeImportedImage, yieldForPaint } from './util/imageImport'
 import { postProcessAiMaskBlob } from './util/maskProcess'
 import { buildStlZip } from './workers/stlZipClient'
 import {
@@ -792,6 +794,22 @@ const ui = {
   },
 }
 
+let progressDepth = 0
+
+function beginProgress(): void {
+  progressDepth += 1
+  if (progressDepth === 1) ui.show()
+}
+
+function endProgress(): void {
+  progressDepth = Math.max(0, progressDepth - 1)
+  if (progressDepth === 0) ui.hide()
+}
+
+function reportImportProgress(pct: number, message: string, detail: string): void {
+  ui.update(pct, message, detail)
+}
+
 function setExportButtonsEnabled(enabled: boolean): void {
   const btnStl = $('btnDownloadStl') as HTMLButtonElement | null
   if (!btnStl) return
@@ -1186,14 +1204,19 @@ function restoreHistoryEntry(type: ActiveLayer, entry: LayerHistoryEntry): void 
     else state.lastGeneratedMaskName = entry.suggestedSlug
   }
   void (async () => {
+    beginProgress()
     try {
-      const decoded = await decodeImportedImage(entry.blob, type)
+      ui.update(8, 'Restoring image…', '')
+      await yieldForPaint()
+      const decoded = await decodeImportedImage(entry.blob, type, undefined, reportImportProgress)
       handleImageLoad(decoded.img, type, null, entry.source === 'ai', {
         objectUrl: decoded.objectUrl,
       })
     } catch (e) {
       console.error(e)
       void window.alert(e instanceof Error ? e.message : String(e))
+    } finally {
+      endProgress()
     }
   })()
 }
@@ -1205,8 +1228,11 @@ function loadLayer(e: Event, type: ActiveLayer): void {
   if (type === 'photo') clearOutpaintSource()
   const suggested = file.name.replace(/\.[^.]+$/, '') || null
   void (async () => {
+    beginProgress()
     try {
-      const decoded = await decodeImportedImage(file, type, file.name)
+      ui.update(5, 'Importing image…', file.name)
+      await yieldForPaint()
+      const decoded = await decodeImportedImage(file, type, file.name, reportImportProgress)
       addToHistory(decoded.blob, type, { source: 'upload', suggestedSlug: suggested })
       handleImageLoad(decoded.img, type, null, false, { objectUrl: decoded.objectUrl })
     } catch (err) {
@@ -1215,6 +1241,7 @@ function loadLayer(e: Event, type: ActiveLayer): void {
         err instanceof Error ? err.message : `Could not decode that ${type} image.`,
       )
     } finally {
+      endProgress()
       input.value = ''
     }
   })()
@@ -2525,17 +2552,29 @@ async function runPhotoExtend(regenerate: boolean): Promise<void> {
 
     const prepared = prepareOutpaintRequest(outpaintSource.img)
     ui.update(55, regenerate ? 'Trying another extend...' : 'Extending photo...', 'This may take a few seconds')
-    const generated = await requestGeneratedImage({
+    let generated = await requestGeneratedImage({
       prompt: buildOutpaintPrompt(extra),
       inlineImages: [
-        { data: prepared.jpegBase64, mime: prepared.mime },
         { data: prepared.originalJpegBase64, mime: prepared.mime },
+        { data: prepared.maskJpegBase64, mime: prepared.mime },
+        { data: prepared.jpegBase64, mime: prepared.mime },
       ],
       aspectRatio: prepared.aspectRatio,
     })
 
-    const genUrl = `data:${generated.mime};base64,${generated.base64}`
-    const genImg = await loadHtmlImage(genUrl)
+    let genUrl = `data:${generated.mime};base64,${generated.base64}`
+    let genImg = await loadHtmlImage(genUrl)
+    if (outpaintPadLooksSmeared(genImg, outpaintSource.img)) {
+      ui.update(70, regenerate ? 'Trying another extend...' : 'Extending photo...', 'Retrying without placeholder pad')
+      generated = await requestGeneratedImage({
+        prompt: buildOutpaintRetryPrompt(extra),
+        inlineImages: [{ data: prepared.originalJpegBase64, mime: prepared.mime }],
+        aspectRatio: prepared.aspectRatio,
+      })
+      genUrl = `data:${generated.mime};base64,${generated.base64}`
+      genImg = await loadHtmlImage(genUrl)
+    }
+
     const composited = compositeOutpaintResult(genImg, outpaintSource.img)
     const blob = await canvasToPngBlob(composited)
     const nameDataUrl = composited.toDataURL('image/jpeg', 0.82)
@@ -2711,13 +2750,18 @@ function loadBlobAsLayer(
   pose: LayerPose | undefined,
   isGenerated: boolean,
 ): Promise<void> {
-  return decodeImportedImage(blob, type).then((decoded) => {
-    handleImageLoad(decoded.img, type, null, isGenerated, {
-      pose,
-      resetExportDims: false,
-      objectUrl: decoded.objectUrl,
+  beginProgress()
+  return decodeImportedImage(blob, type, undefined, reportImportProgress)
+    .then((decoded) => {
+      handleImageLoad(decoded.img, type, null, isGenerated, {
+        pose,
+        resetExportDims: false,
+        objectUrl: decoded.objectUrl,
+      })
     })
-  })
+    .finally(() => {
+      endProgress()
+    })
 }
 
 async function applyUnpackedProject(unpacked: UnpackedProject): Promise<void> {
@@ -2806,9 +2850,10 @@ function triggerProjectImport(): void {
 }
 
 async function importProjectFile(file: File): Promise<void> {
+  beginProgress()
   try {
-    ui.show()
     ui.update(40, 'Opening project…', '')
+    await yieldForPaint()
     const unpacked = await unpackProjectZip(file)
     await applyUnpackedProject(unpacked)
     ui.update(100, 'Done', '')
@@ -2816,7 +2861,7 @@ async function importProjectFile(file: File): Promise<void> {
     console.error(e)
     void window.alert(e instanceof Error ? e.message : String(e))
   } finally {
-    ui.hide()
+    endProgress()
   }
 }
 
@@ -2840,15 +2885,20 @@ function renderDefaultMasks(): void {
 function loadPresetMask(filename: string): void {
   const url = defaultMaskUrl(filename)
   void (async () => {
+    beginProgress()
     try {
+      ui.update(8, 'Loading preset mask…', filename)
+      await yieldForPaint()
       const res = await fetch(url)
       if (!res.ok) throw new Error(`Could not load preset mask (${filename}).`)
       const blob = await res.blob()
-      const decoded = await decodeImportedImage(blob, 'mask', filename)
+      const decoded = await decodeImportedImage(blob, 'mask', filename, reportImportProgress)
       handleImageLoad(decoded.img, 'mask', null, false, { objectUrl: decoded.objectUrl })
     } catch (e) {
       console.error(e)
       void window.alert(e instanceof Error ? e.message : `Could not load preset mask (${filename}).`)
+    } finally {
+      endProgress()
     }
   })()
 }
@@ -2929,9 +2979,10 @@ async function refreshLibraryGrid(): Promise<void> {
 }
 
 async function restoreLibraryEntry(id: string): Promise<void> {
+  beginProgress()
   try {
-    ui.show()
     ui.update(40, 'Restoring…', '')
+    await yieldForPaint()
     const zip = await getLibraryZip(id)
     if (!zip) throw new Error('Library entry not found.')
     const unpacked = await unpackProjectZip(zip)
@@ -2941,7 +2992,7 @@ async function restoreLibraryEntry(id: string): Promise<void> {
     console.error(e)
     void window.alert(e instanceof Error ? e.message : String(e))
   } finally {
-    ui.hide()
+    endProgress()
   }
 }
 

@@ -14,7 +14,7 @@ export interface PaletteEntry {
 
 export type PaletteJson = Record<string, PaletteEntry>
 
-const PALETTE_STORAGE_KEY = 'litholab_palette'
+const PALETTE_STORAGE_KEY = 'litholab_palette_v3'
 const WHITE_HEX = '#FFFFFF'
 
 interface ManagerHooks {
@@ -148,7 +148,7 @@ function tileTextColorFor(hex: string): 'light-text' | 'dark-text' {
 /**
  * Generate a 5-layer H/S/L ramp from a single top-layer color.
  * In a lithophane, fewer layers = thinner filament = more transmitted light = lighter color.
- * Delta-L steps approximate the curves observed in the bundled CMYK-0.10mm.json.
+ * Delta-L steps approximate the curves observed in the bundled 0.05mm 10-layer calibration.
  */
 export function makeLayerRamp(h: number, s: number, lTop: number): Record<string, PaletteLayerHSL> {
   const steps = [0, 2, 8, 18, 32] // delta-L added at layers 5,4,3,2,1
