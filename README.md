@@ -14,14 +14,16 @@ Lithophane generation is based on [PIXEstL](https://github.com/gaugo87/PIXEstL) 
 * **Separate STL Objects for Slicing:** Exports put all meshes in `stl/` (`layer-plate.stl` under the photo area only, `layer-border.stl` as its own object, plus per-color and texture layers) so you can Select All in the slicer without picking previews or project files. Plate, border, color, and texture layers share a common XY center and sit flat on the build plate (Z=0) when imported as a group.
 * **Organized Sidebar Layout:** Settings are grouped into **Color Generation** (palette, plate thickness, pixel width, layer count, mode) and **Texture Generation** (pixel size, min/max thickness) sections for a clearer workflow. **Generate Previews** and **Download STLs** are stacked at the bottom.
 * **Border & Export Settings:** Numeric inputs for border **width** (mm), border **height** (mm, Z-thickness of the top ring), **border overlap** (mm, inward shift of the ring to close lithophane gaps without changing printed width), and **pixel size** (mm) for precise control without sliders. Default **color pixel width** is **0.4 mm** for finer color detail.
+* **HEIC/HEIF Import:** Photo and mask picks convert iPhone HEIC files (including ones renamed `.jpg`) to a canvas-safe JPEG/PNG with EXIF orientation applied, so any common camera format loads in the browser.
 * **Interactive Editing Workflow:** Upload or AI-generate images, manipulate assets on a canvas with vector mask compositing, generate previews, and export a ready-to-print ZIP archive.
-* **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, extend a loaded photo onto a square centered canvas (with regenerate), solid high-contrast mask silhouettes (no interior cutouts), and intelligent asset names. Your API key is stored locally in the browser only — never in source code.
+* **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, extend a loaded photo onto a square centered canvas (with regenerate), mask shapes (Cookiecutter or Stencil, optional Gradient), and intelligent asset names. Your API key is stored locally in the browser only — never in source code.
+* **Stencil holes & gradient relief:** Interior counters (the hole in a letter A) fill with border material in previews and `layer-border.stl`, ignoring border width. Grayscale in the mask adds extra texture-layer height on top of the photo min/max mapping; **Gradient max thickness** lives on the mask card.
 
 ## Technical Architecture
 * **Frontend/UI:** TypeScript, Vite, HTML5 Canvas API
-* **Backend/Logic:** Client-side processing, Google Gemini API (REST), JSZip
+* **Backend/Logic:** Client-side processing, Google Gemini API (REST), JSZip, `heic-to` (WASM) for HEIC/HEIF
 * **Workers:** Palette quantization, STL mesh generation, and ZIP compression run in web workers (with a main-thread fallback) so the progress overlay stays live. Generate Previews caches STL-clip rasters and preview PNGs so Download STLs can skip re-quantizing.
-* **Mesh Generation:** Custom CSG/STL pipeline (PIXEstL-aligned palette engine, polygon-prism edge geometry)
+* **Mesh Generation:** Custom CSG/STL pipeline (PIXEstL-aligned palette engine, polygon-prism edge geometry, `earcut` for hole-aware plate triangulation)
 * **Infrastructure:** Static web hosting via GitHub Pages
 
 ## Setup & Deployment
@@ -40,6 +42,12 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
+
+## v2.6.0 changes
+* **HEIC/HEIF import:** Photo and mask file picks, history restore, presets, and `.litholab` project load run through a CMS-style decoder: magic-byte `ftyp` detection (even when the file is named `.jpg`), `heic-to` JPEG 0.92, then EXIF orientation. Native decode failures retry HEIC conversion; total failure alerts instead of failing silently. File inputs accept `.heic`/`.heif`. The WASM decoder loads only when a HEIC file is actually opened.
+* **Mask AI types:** The mask generate modal has **Cookiecutter** vs **Stencil** (either/or) and a **Gradient** checkbox. Cookiecutter demands a solid fill with no holes; Stencil allows interior counters (no spraypaint bridges). Gradient off keeps hard black/white; Gradient on allows grayscale texture inside the fill. Generated masks are post-processed to match (fill leaked holes for Cookiecutter; threshold when Gradient is off).
+* **Hole fill with border:** Masks with floating interior regions (letter A, etc.) clip photo/color/texture with even-odd holes, then fill those counters with border material in the Color/Texture previews and `layer-border.stl`. Hole fills ignore border width and span the full border height. `layer-plate.stl` is triangulated with holes so plate and border do not overlap.
+* **Gradient mask thickness:** New **Gradient max thickness (mm)** control on the mask card (default **0.4 mm**). Photo min/max thickness still map the texture image only; darker gray in the mask adds extra Z on top of that mapping in `layer-texture-*.stl`. White mask body adds no extra height. Changing this value does not require Generate Previews again (same rule as texture min/max). Saved in the `.litholab` project.
 
 ## v2.5.12 changes
 * **Square photo extend:** Extend edges now builds a 1:1 canvas (up to 3840) with the subject centered, so tall photos have side room for heart or gear masks. The pad stretches edge colors only (not a scaled-up subject). The join is color-matched and feathered.
