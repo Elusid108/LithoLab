@@ -55,10 +55,16 @@ function toPayload(image: ImageData | null): ImageBufferPayload | null {
 
 export async function buildStlZip(input: BuildStlZipInput): Promise<Blob> {
   const w = getWorker()
+  // #region agent log
+  fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H3',location:'stlZipClient.ts:buildStlZip',message:'choosing STL zip path',data:{hasWorker:!!w,workerFailed,colorW:input.colorImage?.width??null,colorH:input.colorImage?.height??null,texW:input.texturedImage?.width??null,texH:input.texturedImage?.height??null,colorBytes:input.colorImage?.data.byteLength??0,texBytes:input.texturedImage?.data.byteLength??0},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if (w) {
     try {
       return await buildStlZipWithWorker(w, input)
     } catch (e) {
+      // #region agent log
+      fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H3',location:'stlZipClient.ts:workerCatch',message:'STL worker failed; falling back to main thread',data:{err:e instanceof Error?e.message:String(e)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (!(e instanceof Error) || e.message !== 'STL worker failed') {
         throw e
       }

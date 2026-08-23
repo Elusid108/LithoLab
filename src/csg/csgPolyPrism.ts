@@ -22,7 +22,7 @@ import type { GenInstruction } from '../genInstruction'
 import type { Polygon, PolygonSet } from '../util/maskPolygon'
 import { signedArea } from '../util/maskPolygon'
 import { curveTriangleList } from './csgThreadTextureRow'
-import { facetToStlString, triangleNormal, type Vec3 } from './stl'
+import { triangleNormal, type BinaryStlBuilder, type Vec3 } from './stl'
 
 export interface PrismOptions {
   /** GenInstruction supplies the curve parameter & destImageWidth for curving. */
@@ -67,12 +67,18 @@ function transformVertex(v: Vec3, opts: PrismOptions, polygonWidthMm: number): V
   return out
 }
 
-function emitTri(a: Vec3, b: Vec3, c: Vec3, opts: PrismOptions, polygonWidthMm: number): string {
+function emitTri(
+  mesh: BinaryStlBuilder,
+  a: Vec3,
+  b: Vec3,
+  c: Vec3,
+  opts: PrismOptions,
+  polygonWidthMm: number,
+): void {
   const ta = transformVertex(a, opts, polygonWidthMm)
   const tb = transformVertex(b, opts, polygonWidthMm)
   const tc = transformVertex(c, opts, polygonWidthMm)
-  const n = triangleNormal(ta, tb, tc)
-  return facetToStlString(n, ta, tb, tc)
+  mesh.addTriangle(triangleNormal(ta, tb, tc), ta, tb, tc)
 }
 
 // ---------------------------------------------------------------------------
@@ -163,8 +169,8 @@ export function emitSilhouettePrism(
   zTop: number,
   opts: PrismOptions,
   polygonWidthMm: number,
-): string[] {
-  const facets: string[] = []
+  mesh: BinaryStlBuilder,
+): void {
   for (const raw of polygons) {
     if (raw.length < 3) continue
     const loop = asCCW(raw)
@@ -175,7 +181,7 @@ export function emitSilhouettePrism(
       const a: Vec3 = [loop[i0].x, loop[i0].y, zTop]
       const b: Vec3 = [loop[i1].x, loop[i1].y, zTop]
       const c: Vec3 = [loop[i2].x, loop[i2].y, zTop]
-      facets.push(emitTri(a, b, c, opts, polygonWidthMm))
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
     }
 
     // Bottom face (z = zBottom, normals down — reverse winding)
@@ -183,7 +189,7 @@ export function emitSilhouettePrism(
       const a: Vec3 = [loop[i0].x, loop[i0].y, zBottom]
       const b: Vec3 = [loop[i2].x, loop[i2].y, zBottom]
       const c: Vec3 = [loop[i1].x, loop[i1].y, zBottom]
-      facets.push(emitTri(a, b, c, opts, polygonWidthMm))
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
     }
 
     // Side walls (outward normals; CCW loop in xy → outward when winding CCW
@@ -195,11 +201,10 @@ export function emitSilhouettePrism(
       const b: Vec3 = [p1.x, p1.y, zBottom]
       const c: Vec3 = [p1.x, p1.y, zTop]
       const d: Vec3 = [p0.x, p0.y, zTop]
-      facets.push(emitTri(a, b, c, opts, polygonWidthMm))
-      facets.push(emitTri(a, c, d, opts, polygonWidthMm))
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
+      emitTri(mesh, a, c, d, opts, polygonWidthMm)
     }
   }
-  return facets
 }
 
 // ---------------------------------------------------------------------------
@@ -302,8 +307,8 @@ export function emitRingPrism(
   zTop: number,
   opts: PrismOptions,
   polygonWidthMm: number,
-): string[] {
-  const facets: string[] = []
+  mesh: BinaryStlBuilder,
+): void {
 
   // Match outer loops to inner loops by bounding-box overlap so multi-blob
   // shapes still wind correctly.
@@ -327,8 +332,7 @@ export function emitRingPrism(
     }
     if (!pickedInner || pickedIdx < 0) {
       // No matching inner loop → emit solid prism for this outer alone.
-      const solo = emitSilhouettePrism([rawOuter], zBottom, zTop, opts, polygonWidthMm)
-      for (const f of solo) facets.push(f)
+      emitSilhouettePrism([rawOuter], zBottom, zTop, opts, polygonWidthMm, mesh)
       continue
     }
     innerUsed[pickedIdx] = true
@@ -348,7 +352,7 @@ export function emitRingPrism(
       const a: Vec3 = [p0.x, p0.y, zTop]
       const b: Vec3 = [p1.x, p1.y, zTop]
       const c: Vec3 = [p2.x, p2.y, zTop]
-      facets.push(emitTri(a, b, c, opts, polygonWidthMm))
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
     }
     // Bottom face (z = zBottom, normals down — reverse winding)
     for (const [t0, t1, t2] of tris) {
@@ -358,7 +362,7 @@ export function emitRingPrism(
       const a: Vec3 = [p0.x, p0.y, zBottom]
       const b: Vec3 = [p2.x, p2.y, zBottom]
       const c: Vec3 = [p1.x, p1.y, zBottom]
-      facets.push(emitTri(a, b, c, opts, polygonWidthMm))
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
     }
 
     // Outer side walls (outward normals)
@@ -369,8 +373,8 @@ export function emitRingPrism(
       const b: Vec3 = [p1.x, p1.y, zBottom]
       const c: Vec3 = [p1.x, p1.y, zTop]
       const d: Vec3 = [p0.x, p0.y, zTop]
-      facets.push(emitTri(a, b, c, opts, polygonWidthMm))
-      facets.push(emitTri(a, c, d, opts, polygonWidthMm))
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
+      emitTri(mesh, a, c, d, opts, polygonWidthMm)
     }
     // Inner side walls (inward-facing — reverse winding so normals point
     // toward the ring's hole)
@@ -382,11 +386,10 @@ export function emitRingPrism(
       const b: Vec3 = [p1.x, p1.y, zBottom]
       const c: Vec3 = [p1.x, p1.y, zTop]
       const d: Vec3 = [p0.x, p0.y, zTop]
-      facets.push(emitTri(a, b, c, opts, polygonWidthMm))
-      facets.push(emitTri(a, c, d, opts, polygonWidthMm))
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
+      emitTri(mesh, a, c, d, opts, polygonWidthMm)
     }
   }
-  return facets
 }
 
 function polygonCentroid(loop: Polygon): { x: number; y: number } {

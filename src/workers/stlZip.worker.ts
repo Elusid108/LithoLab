@@ -49,10 +49,19 @@ workerScope.onmessage = (ev: MessageEvent<StlZipWorkerRequest>) => {
           workerScope.postMessage(progress)
         },
       )
+      // #region agent log
+      fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H4',location:'stlZip.worker.ts:beforeArrayBuffer',message:'zip blob ready; converting to ArrayBuffer',data:{blobBytes:blob.size},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const buffer = await blob.arrayBuffer()
       const done: StlZipWorkerDone = { type: 'done', buffer }
+      // #region agent log
+      fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H4',location:'stlZip.worker.ts:beforePostMessage',message:'posting zip buffer to main',data:{bufferBytes:buffer.byteLength},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       workerScope.postMessage(done, [buffer])
     } catch (e) {
+      // #region agent log
+      fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H1',location:'stlZip.worker.ts:catch',message:'STL worker job threw',data:{err:e instanceof Error?e.message:String(e),name:e instanceof Error?e.name:typeof e},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const err: StlZipWorkerError = {
         type: 'error',
         message: e instanceof Error ? e.message : String(e),

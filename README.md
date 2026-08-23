@@ -15,7 +15,7 @@ Lithophane generation is based on [PIXEstL](https://github.com/gaugo87/PIXEstL) 
 * **Organized Sidebar Layout:** Settings are grouped into **Color Generation** (palette, plate thickness, pixel width, layer count, mode) and **Texture Generation** (pixel size, min/max thickness) sections for a clearer workflow. **Generate Previews** and **Download STLs** are stacked at the bottom.
 * **Border & Export Settings:** Numeric inputs for border **width** (mm), border **height** (mm, Z-thickness of the top ring), **border overlap** (mm, inward shift of the ring to close lithophane gaps without changing printed width), and **pixel size** (mm) for precise control without sliders. Default **color pixel width** is **0.4 mm** for finer color detail.
 * **Interactive Editing Workflow:** Upload or AI-generate images, manipulate assets on a canvas with vector mask compositing, generate previews, and export a ready-to-print ZIP archive.
-* **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, extend the edges of a loaded photo (2× canvas outpaint with regenerate), solid high-contrast mask silhouettes (no interior cutouts), and intelligent asset names. Your API key is stored locally in the browser only — never in source code.
+* **AI-Assisted Asset Creation:** Integrates the Google Gemini API directly into the client to generate base images, extend a loaded photo onto a square centered canvas (with regenerate), solid high-contrast mask silhouettes (no interior cutouts), and intelligent asset names. Your API key is stored locally in the browser only — never in source code.
 
 ## Technical Architecture
 * **Frontend/UI:** TypeScript, Vite, HTML5 Canvas API
@@ -40,6 +40,9 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
+
+## v2.5.12 changes
+* **Square photo extend:** Extend edges now builds a 1:1 canvas (up to 3840) with the subject centered, so tall photos have side room for heart or gear masks. The pad stretches edge colors only (not a scaled-up subject). The join is color-matched and feathered.
 
 ## v2.5.11 changes
 * **Photo edge extend:** The photo AI modal can double the canvas around the current photo and fill the new border with matching scene (Gemini image models). **Regenerate** retries from the same source photo so a second attempt does not expand an already-extended image.

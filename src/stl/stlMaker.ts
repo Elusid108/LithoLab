@@ -6,7 +6,7 @@ import { runColorRow } from '../csg/csgThreadColorRow'
 import { runTextureRowOpaque } from '../csg/csgThreadTextureRow'
 import { runTextureRowTransparent } from '../csg/csgThreadTextureTransparent'
 import { CSGWorkData } from '../csg/csgWorkData'
-import { writeSolidStl } from '../csg/stl'
+import { BinaryStlBuilder } from '../csg/stl'
 import { hasATransparentPixel } from '../util/imageUtil'
 import { emitRingPrism, emitSilhouettePrism, type PrismOptions } from '../csg/csgPolyPrism'
 import {
@@ -26,13 +26,16 @@ export interface StlProgress {
 
 export type ProgressFn = (p: StlProgress) => void
 
-function concatFacets(facets: string[]): string {
-  return writeSolidStl(facets)
-}
-
-/** Append facet strings without spread (avoids stack overflow on large meshes). */
-function appendFacets(target: string[], source: string[]): void {
-  for (const f of source) target.push(f)
+function finishStl(mesh: BinaryStlBuilder, label: string): Uint8Array {
+  // #region agent log
+  const _dbgMem = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory
+  fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H1',location:'stlMaker.ts:concatFacets:before',message:'finalizing binary STL',data:{label,triangleCount:mesh.triangleCount,estBytes:84+mesh.triangleCount*50,heapUsed:_dbgMem?.usedJSHeapSize??null,heapLimit:_dbgMem?.jsHeapSizeLimit??null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  const stl = mesh.toUint8Array()
+  // #region agent log
+  fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H1',location:'stlMaker.ts:concatFacets:after',message:'binary STL written',data:{label,triangleCount:mesh.triangleCount,stlBytes:stl.byteLength,heapUsed:_dbgMem?.usedJSHeapSize??null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  return stl
 }
 
 function canYieldToUi(): boolean {
@@ -41,15 +44,15 @@ function canYieldToUi(): boolean {
 
 async function processRows(
   height: number,
-  rowFn: (y: number) => string[],
+  rowFn: (y: number, mesh: BinaryStlBuilder) => void,
   onProgress: ProgressFn | undefined,
   phase: string,
   chunkRows: number,
   yieldBetweenChunks: boolean,
-): Promise<string[]> {
-  const all: string[] = []
+): Promise<BinaryStlBuilder> {
+  const mesh = new BinaryStlBuilder()
   for (let y = 0; y < height; y++) {
-    appendFacets(all, rowFn(y))
+    rowFn(y, mesh)
     if (chunkRows > 0 && y % chunkRows === chunkRows - 1) {
       onProgress?.({ phase, current: y + 1, total: height })
       if (yieldBetweenChunks) {
@@ -58,7 +61,7 @@ async function processRows(
     }
   }
   onProgress?.({ phase, current: height, total: height })
-  return all
+  return mesh
 }
 
 function buildBorderFacets(
@@ -73,10 +76,9 @@ function buildBorderFacets(
   polyWidthMm: number,
   nbColorPlate: number,
   colorPlateLayerNb: number,
-): string[] {
-  if (silhouette.length === 0) return []
-
-  const facets: string[] = []
+  mesh: BinaryStlBuilder,
+): void {
+  if (silhouette.length === 0) return
 
   if (genInstruction.curve !== 0 && colorPlateLayerNb > 0) {
     const sliceH = genInstruction.colorPixelLayerThickness * colorPlateLayerNb
@@ -84,41 +86,32 @@ function buildBorderFacets(
       const ringBottom = i * sliceH
       const ringTop = Math.min(colorStackTop, (i + 1) * sliceH)
       if (ringTop > ringBottom) {
-        appendFacets(
-          facets,
-          emitRingPrism(
-            silhouette,
-            mask,
-            ringBottom,
-            ringTop,
-            flatPrismOpts,
-            polyWidthMm,
-          ),
+        emitRingPrism(
+          silhouette,
+          mask,
+          ringBottom,
+          ringTop,
+          flatPrismOpts,
+          polyWidthMm,
+          mesh,
         )
       }
     }
   } else if (colorStackTop > 0) {
-    appendFacets(
-      facets,
-      emitRingPrism(silhouette, mask, 0, colorStackTop, flatPrismOpts, polyWidthMm),
-    )
+    emitRingPrism(silhouette, mask, 0, colorStackTop, flatPrismOpts, polyWidthMm, mesh)
   }
 
   if (includeTextureCap && borderHeight > 0) {
-    appendFacets(
-      facets,
-      emitRingPrism(
-        silhouette,
-        mask,
-        colorStackTop,
-        colorStackTop + borderHeight,
-        texturePrismOpts,
-        polyWidthMm,
-      ),
+    emitRingPrism(
+      silhouette,
+      mask,
+      colorStackTop,
+      colorStackTop + borderHeight,
+      texturePrismOpts,
+      polyWidthMm,
+      mesh,
     )
   }
-
-  return facets
 }
 
 /**
@@ -223,14 +216,16 @@ export async function buildZip(
 
   if (colorImage) {
     onProgress?.({ phase: 'plate', current: 0, total: 1 })
-    const plateFacets = emitSilhouettePrism(
+    const plateMesh = new BinaryStlBuilder()
+    emitSilhouettePrism(
       maskFlipped,
       0,
       genInstruction.plateThickness,
       flatPrismOpts,
       polyWidthMm,
+      plateMesh,
     )
-    zip.file('stl/layer-plate.stl', concatFacets(plateFacets))
+    zip.file('stl/layer-plate.stl', finishStl(plateMesh, 'plate'))
     onProgress?.({ phase: 'plate', current: 1, total: 1 })
 
     checkAbort()
@@ -243,7 +238,8 @@ export async function buildZip(
       overlap,
       { cellSize: Math.max(overlap / 12, 1e-6) },
     )
-    const borderFacets = buildBorderFacets(
+    const borderMesh = new BinaryStlBuilder()
+    buildBorderFacets(
       ringOuter,
       ringInner,
       genInstruction,
@@ -255,9 +251,10 @@ export async function buildZip(
       polyWidthMm,
       nbColorPlate,
       colorPlateLayerNb,
+      borderMesh,
     )
-    if (borderFacets.length > 0) {
-      zip.file('stl/layer-border.stl', concatFacets(borderFacets))
+    if (borderMesh.triangleCount > 0) {
+      zip.file('stl/layer-border.stl', finishStl(borderMesh, 'border'))
     }
     onProgress?.({ phase: 'border', current: 1, total: 1 })
 
@@ -296,9 +293,9 @@ export async function buildZip(
           current: colorRowOffset,
           total: colorRowTotal,
         })
-        const facets = await processRows(
+        const colorMesh = await processRows(
           colorImage.height,
-          (y) => runColorRow(csgWorkData, y),
+          (y, mesh) => runColorRow(csgWorkData, y, mesh),
           (p) => {
             onProgress?.({
               phase: 'color',
@@ -310,8 +307,8 @@ export async function buildZip(
           rowChunk,
           yieldBetweenChunks,
         )
-        if (facets.length > 0) {
-          zip.file(`stl/${threadName}.stl`, concatFacets(facets))
+        if (colorMesh.triangleCount > 0) {
+          zip.file(`stl/${threadName}.stl`, finishStl(colorMesh, threadName))
         }
       }
     }
@@ -343,30 +340,39 @@ export async function buildZip(
 
     onProgress?.({ phase: 'texture', current: 0, total: texturedImage.height })
     const texHasAlpha = hasATransparentPixel(texturedImage)
-    const facets = await processRows(
+    const textureMesh = await processRows(
       texturedImage.height,
       texHasAlpha
-        ? (y) => runTextureRowTransparent(csgWorkData, y)
-        : (y) => runTextureRowOpaque(csgWorkData, y),
+        ? (y, mesh) => runTextureRowTransparent(csgWorkData, y, mesh)
+        : (y, mesh) => runTextureRowOpaque(csgWorkData, y, mesh),
       onProgress,
       'texture',
       rowChunk,
       yieldBetweenChunks,
     )
 
-    zip.file(`stl/${threadName}.stl`, concatFacets(facets))
+    zip.file(`stl/${threadName}.stl`, finishStl(textureMesh, threadName))
   }
 
   checkAbort()
 
   onProgress?.({ phase: 'zip', current: 0, total: 100 })
-  return zip.generateAsync({ type: 'blob' }, (metadata) => {
+  // #region agent log
+  const _dbgZipMem = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory
+  const _dbgZipFiles = Object.keys(zip.files)
+  fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H2',location:'stlMaker.ts:buildZip:beforeGenerate',message:'starting JSZip generateAsync',data:{fileCount:_dbgZipFiles.length,files:_dbgZipFiles,heapUsed:_dbgZipMem?.usedJSHeapSize??null,heapLimit:_dbgZipMem?.jsHeapSizeLimit??null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  const zipBlob = await zip.generateAsync({ type: 'blob' }, (metadata) => {
     onProgress?.({
       phase: 'zip',
       current: Math.max(0, Math.min(100, Math.round(metadata.percent))),
       total: 100,
     })
   })
+  // #region agent log
+  fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H2',location:'stlMaker.ts:buildZip:afterGenerate',message:'JSZip generateAsync finished',data:{zipBytes:zipBlob.size,heapUsed:_dbgZipMem?.usedJSHeapSize??null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  return zipBlob
 }
 
 function polygonSpanX(set: PolygonSet): number {

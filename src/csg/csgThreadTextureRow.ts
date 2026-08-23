@@ -1,5 +1,5 @@
 import { colorToCMYK, packedRgbToRgba } from '../util/colorUtil'
-import { facetToStlString, triangleNormal, type Vec3 } from './stl'
+import { triangleNormal, type BinaryStlBuilder, type Vec3 } from './stl'
 import type { CSGWorkData } from './csgWorkData'
 
 function xyz(x: number, y: number, z: number): Vec3 {
@@ -72,17 +72,21 @@ export function applyTrans(v: Vec3, t: [number, number, number] | null): Vec3 {
 }
 
 export function emitTriTransformed(
+  mesh: BinaryStlBuilder,
   tri: [Vec3, Vec3, Vec3],
   trans: [number, number, number] | null,
-): string {
+): void {
   const t0 = applyTrans(tri[0], trans)
   const t1 = applyTrans(tri[1], trans)
   const t2 = applyTrans(tri[2], trans)
-  const n = triangleNormal(t0, t1, t2)
-  return facetToStlString(n, t0, t1, t2)
+  mesh.addTriangle(triangleNormal(t0, t1, t2), t0, t1, t2)
 }
 
-export function runTextureRowOpaque(csgWorkData: CSGWorkData, y: number): string[] {
+export function runTextureRowOpaque(
+  csgWorkData: CSGWorkData,
+  y: number,
+  mesh: BinaryStlBuilder,
+): void {
   const img = csgWorkData.texturedImage!
   const width = img.width
   const height = img.height
@@ -102,9 +106,7 @@ export function runTextureRowOpaque(csgWorkData: CSGWorkData, y: number): string
   const jMid = (height / 2) * pixelWidth
   const widthPixel = width * pixelWidth
 
-  const facets: string[] = []
-
-  if (y === height - 1) return facets
+  if (y === height - 1) return
 
   const getH = (x: number, yy: number) =>
     getPixelHeightTexture(img, x, yy, g.textureMinThickness, g.textureMaxThickness)
@@ -130,14 +132,14 @@ export function runTextureRowOpaque(csgWorkData: CSGWorkData, y: number): string
         xyz(i, j1, getH(x, y + 1)),
         xyz(i, j1, 0),
       ]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t1), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t1), trans)
 
       const t2: [Vec3, Vec3, Vec3] = [xyz(i, j, getH(x, y)), xyz(i, j, 0), xyz(i, j1, 0)]
-      facets.push(emitTriTransformed(t2, trans))
+      emitTriTransformed(mesh, t2, trans)
 
       if (curve === 0) {
         const t3: [Vec3, Vec3, Vec3] = [xyz(i, j, 0), xyz(i, j1, 0), xyz(iMid, jMid, 0)]
-        facets.push(emitTriTransformed(t3, trans))
+        emitTriTransformed(mesh, t3, trans)
       }
     }
 
@@ -147,14 +149,14 @@ export function runTextureRowOpaque(csgWorkData: CSGWorkData, y: number): string
         xyz(i1, j, getH(x + 1, y)),
         xyz(i1, j, 0),
       ]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t1), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t1), trans)
 
       const t2: [Vec3, Vec3, Vec3] = [xyz(i, j, getH(x, y)), xyz(i, j, 0), xyz(i1, j, 0)]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t2), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t2), trans)
 
       if (curve === 0) {
         const t3: [Vec3, Vec3, Vec3] = [xyz(i, j, 0), xyz(i1, j, 0), xyz(iMid, jMid, 0)]
-        facets.push(emitTriTransformed(t3, trans))
+        emitTriTransformed(mesh, t3, trans)
       }
     }
 
@@ -164,14 +166,14 @@ export function runTextureRowOpaque(csgWorkData: CSGWorkData, y: number): string
         xyz(i1, j1, getH(x + 1, y + 1)),
         xyz(i1, j1, 0),
       ]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t1), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t1), trans)
 
       const t2: [Vec3, Vec3, Vec3] = [xyz(i1, j, getH(x + 1, y)), xyz(i1, j, 0), xyz(i1, j1, 0)]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t2), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t2), trans)
 
       if (curve === 0) {
         const t3: [Vec3, Vec3, Vec3] = [xyz(i1, j, 0), xyz(i1, j1, 0), xyz(iMid, jMid, 0)]
-        facets.push(emitTriTransformed(t3, trans))
+        emitTriTransformed(mesh, t3, trans)
       }
     }
 
@@ -181,14 +183,14 @@ export function runTextureRowOpaque(csgWorkData: CSGWorkData, y: number): string
         xyz(i1, j1, getH(x + 1, y + 1)),
         xyz(i1, j1, 0),
       ]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t1), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t1), trans)
 
       const t2: [Vec3, Vec3, Vec3] = [xyz(i, j1, getH(x, y + 1)), xyz(i, j1, 0), xyz(i1, j1, 0)]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t2), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t2), trans)
 
       if (curve === 0) {
         const t3: [Vec3, Vec3, Vec3] = [xyz(i, j1, 0), xyz(i1, j1, 0), xyz(iMid, jMid, 0)]
-        facets.push(emitTriTransformed(t3, trans))
+        emitTriTransformed(mesh, t3, trans)
       }
     }
 
@@ -197,27 +199,25 @@ export function runTextureRowOpaque(csgWorkData: CSGWorkData, y: number): string
       xyz(i, j1, getH(x, y + 1)),
       xyz(i1, j, getH(x + 1, y)),
     ]
-    facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, ta), trans))
+    emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, ta), trans)
 
     const tb: [Vec3, Vec3, Vec3] = [
       xyz(i1, j1, getH(x + 1, y + 1)),
       xyz(i, j1, getH(x, y + 1)),
       xyz(i1, j, getH(x + 1, y)),
     ]
-    facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, tb), trans))
+    emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, tb), trans)
 
     if (curve !== 0 && y === 0) {
       const t3: [Vec3, Vec3, Vec3] = [xyz(i, 0, 0), xyz(i, height * pixelWidth, 0), xyz(i1, 0, 0)]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t3), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t3), trans)
 
       const t4: [Vec3, Vec3, Vec3] = [
         xyz(i1, height * pixelWidth, 0),
         xyz(i, height * pixelWidth, 0),
         xyz(i1, 0, 0),
       ]
-      facets.push(emitTriTransformed(curveTriangleList(widthPixel, curve, t4), trans))
+      emitTriTransformed(mesh, curveTriangleList(widthPixel, curve, t4), trans)
     }
   }
-
-  return facets
 }

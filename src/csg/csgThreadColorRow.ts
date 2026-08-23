@@ -1,11 +1,10 @@
 import { packedRgbToRgba, transparentPixel } from '../util/colorUtil'
-import { cuboidTriangles } from './stl'
+import { addCuboidTriangles, type BinaryStlBuilder } from './stl'
 import type { CSGWorkData } from './csgWorkData'
 
-export function runColorRow(csgWorkData: CSGWorkData, y: number): string[] {
+export function runColorRow(csgWorkData: CSGWorkData, y: number, mesh: BinaryStlBuilder): void {
   const img = csgWorkData.colorImage!
   const width = img.width
-  const facets: string[] = []
 
   for (const colorName of csgWorkData.hexCode) {
     for (let x = 0; x < width; x++) {
@@ -71,13 +70,11 @@ export function runColorRow(csgWorkData: CSGWorkData, y: number): string[] {
         const cy = y * pixelWidth + yOff
         const cz = curPixelHeightAdjust
 
-        for (const f of cuboidTriangles(cx, cy, cz, wx, pixelWidth, curPixelHeight)) facets.push(f)
+        addCuboidTriangles(mesh, cx, cy, cz, wx, pixelWidth, curPixelHeight)
       }
       x += k
     }
   }
-
-  return facets
 }
 
 function getRgb(img: ImageData, x: number, y: number): number {

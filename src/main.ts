@@ -2136,6 +2136,7 @@ interface GeneratedImageResult {
 async function requestGeneratedImage(opts: {
   prompt: string
   inlineImage?: { data: string; mime: string }
+  inlineImages?: Array<{ data: string; mime: string }>
   aspectRatio?: string
 }): Promise<GeneratedImageResult> {
   const imageOpt = getSelectedImageModelOption()
@@ -2148,7 +2149,10 @@ async function requestGeneratedImage(opts: {
   const modelId = state.selectedImageModel
   const imageEndpoint = imageOpt.imageEndpoint
 
-  if (opts.inlineImage && imageEndpoint !== 'generateContent') {
+  const inlineImages =
+    opts.inlineImages ?? (opts.inlineImage ? [opts.inlineImage] : [])
+
+  if (inlineImages.length > 0 && imageEndpoint !== 'generateContent') {
     throw new Error(
       'Extend edges needs a Gemini image model (for example Nano Banana). Open Settings and pick an image model that can edit photos.',
     )
@@ -2156,9 +2160,9 @@ async function requestGeneratedImage(opts: {
 
   if (imageEndpoint === 'generateContent') {
     const parts: Array<Record<string, unknown>> = []
-    if (opts.inlineImage) {
+    for (const image of inlineImages) {
       parts.push({
-        inlineData: { mimeType: opts.inlineImage.mime, data: opts.inlineImage.data },
+        inlineData: { mimeType: image.mime, data: image.data },
       })
     }
     parts.push({ text: opts.prompt })
@@ -2340,7 +2344,10 @@ async function runPhotoExtend(regenerate: boolean): Promise<void> {
     ui.update(55, regenerate ? 'Trying another extend...' : 'Extending photo...', 'This may take a few seconds')
     const generated = await requestGeneratedImage({
       prompt: buildOutpaintPrompt(extra),
-      inlineImage: { data: prepared.jpegBase64, mime: prepared.mime },
+      inlineImages: [
+        { data: prepared.jpegBase64, mime: prepared.mime },
+        { data: prepared.originalJpegBase64, mime: prepared.mime },
+      ],
       aspectRatio: prepared.aspectRatio,
     })
 
@@ -2804,6 +2811,15 @@ async function exportDownload(): Promise<void> {
     extraFiles['originals/original-masked.png'] = await canvasToPngBlob(
       state.pixelData.rectifiedComposite,
     )
+
+    // #region agent log
+    {
+      const extraSizes: Record<string, number> = {}
+      for (const [name, blob] of Object.entries(extraFiles)) extraSizes[name] = blob.size
+      const mem = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory
+      fetch('http://127.0.0.1:7504/ingest/af4d1295-d9ac-45c3-99c1-28f04c301803',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ffb977'},body:JSON.stringify({sessionId:'ffb977',runId:'post-fix',hypothesisId:'H5',location:'main.ts:exportDownload:beforeMeshes',message:'export extras packed; starting mesh build',data:{widthMm:state.pixelData.widthMm,heightMm:state.pixelData.heightMm,colorW:state.pixelData.stlColorImage?.width??null,colorH:state.pixelData.stlColorImage?.height??null,texW:state.pixelData.stlTextureImage?.width??null,texH:state.pixelData.stlTextureImage?.height??null,pixelSizeMm:state.export.pixelSizeMm,colorPixelWidth:gen.colorPixelWidth,texturePixelWidth:gen.texturePixelWidth,extraSizes,extraTotal:Object.values(extraSizes).reduce((a,b)=>a+b,0),heapUsed:mem?.usedJSHeapSize??null,heapLimit:mem?.jsHeapSizeLimit??null},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
 
     ui.update(35, 'Building meshes…', '')
     const paletteJson = JSON.stringify(currentPaletteJson)
