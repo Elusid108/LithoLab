@@ -259,9 +259,15 @@
                 <span class="upload-icon color"></span>
                 Photo (Color)
               </div>
-              <input type="file" id="photoInput" accept="image/*" />
-              <div class="ai-feature ai-btn-row">
-                <button class="ai-btn" onclick="openAiPrompt('photo')">✨ Generate with AI</button>
+              <div class="file-pick-row">
+                <button
+                  type="button"
+                  class="ai-feature ai-btn ai-btn-icon"
+                  onclick="openAiPrompt('photo')"
+                  title="Generate with AI"
+                  aria-label="Generate with AI"
+                >✨</button>
+                <input type="file" id="photoInput" accept="image/*" />
                 <button id="dl-photo" class="dl-btn" onclick="downloadSource('photo')" title="Download Generated Image">⬇️</button>
               </div>
               <div id="activeGeneratedPhotoContainer" style="display: none; margin-top: 8px">
@@ -290,15 +296,21 @@
                 <span class="upload-icon bw"></span>
                 Mask (Optional)
               </div>
-              <input type="file" id="maskInput" accept="image/*" />
               <p class="preset-strip-label">Presets</p>
               <div class="strip-scroller">
                 <button type="button" class="strip-arrow" data-dir="-1" aria-label="Scroll left">‹</button>
                 <div id="maskPresets" class="history-strip mask-preset-strip"></div>
                 <button type="button" class="strip-arrow" data-dir="1" aria-label="Scroll right">›</button>
               </div>
-              <div class="ai-feature ai-btn-row">
-                <button class="ai-btn" onclick="openAiPrompt('mask')">✨ Generate Mask AI</button>
+              <div class="file-pick-row">
+                <button
+                  type="button"
+                  class="ai-feature ai-btn ai-btn-icon"
+                  onclick="openAiPrompt('mask')"
+                  title="Generate Mask AI"
+                  aria-label="Generate Mask AI"
+                >✨</button>
+                <input type="file" id="maskInput" accept="image/*" />
                 <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
               </div>
               <div id="activeGeneratedMaskContainer" style="display: none; margin-top: 8px">
@@ -400,7 +412,7 @@
             </div>
             <div class="dim-group">
               <span class="dim-label">Color pixel width (mm)</span>
-              <input type="number" id="inpColorPixelWidth" class="dim-input" step="0.01" value="0.4" />
+              <input type="number" id="inpColorPixelWidth" class="dim-input" step="0.01" value="0.4" onchange="onPreviewSettingsChange()" />
             </div>
           </div>
 
@@ -411,21 +423,21 @@
             </div>
             <div class="dim-group">
               <span class="dim-label">Layer count</span>
-              <input type="number" id="inpLayerCount" class="dim-input" step="1" min="1" value="10" />
+              <input type="number" id="inpLayerCount" class="dim-input" step="1" min="1" value="10" onchange="onPreviewSettingsChange()" />
             </div>
           </div>
 
           <div class="dim-row">
             <div class="dim-group">
               <span class="dim-label">Mode</span>
-              <select id="selPixelMode" class="unit-toggle" style="width: 100%; padding: 8px; margin-top: 4px">
+              <select id="selPixelMode" class="unit-toggle" style="width: 100%; padding: 8px; margin-top: 4px" onchange="onPreviewSettingsChange()">
                 <option value="ADDITIVE">ADDITIVE</option>
                 <option value="FULL">FULL</option>
               </select>
             </div>
             <div class="dim-group">
               <span class="dim-label">Color distance</span>
-              <select id="selColorDistance" class="unit-toggle" style="width: 100%; padding: 8px; margin-top: 4px">
+              <select id="selColorDistance" class="unit-toggle" style="width: 100%; padding: 8px; margin-top: 4px" onchange="onPreviewSettingsChange()">
                 <option value="CIELab">CIELab</option>
                 <option value="RGB">RGB</option>
               </select>
@@ -435,7 +447,7 @@
           <div class="dim-row">
             <div class="dim-group">
               <span class="dim-label">Max colors (0 = no limit)</span>
-              <input type="number" id="inpMaxColors" class="dim-input" step="1" min="0" value="0" />
+              <input type="number" id="inpMaxColors" class="dim-input" step="1" min="0" value="0" onchange="onPreviewSettingsChange()" />
             </div>
           </div>
 
@@ -462,7 +474,7 @@
           </div>
         </div>
 
-        <div class="export-row" style="display: flex; flex-direction: column; gap: 10px">
+        <div class="export-row">
           <div class="input-group" style="margin-bottom: 0">
             <div style="display: flex; justify-content: space-between; align-items: center">
               <label style="margin: 0">Lithophane Name</label>

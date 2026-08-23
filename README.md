@@ -20,6 +20,7 @@ Lithophane generation is based on [PIXEstL](https://github.com/gaugo87/PIXEstL) 
 ## Technical Architecture
 * **Frontend/UI:** TypeScript, Vite, HTML5 Canvas API
 * **Backend/Logic:** Client-side processing, Google Gemini API (REST), JSZip
+* **Workers:** Palette quantization, STL mesh generation, and ZIP compression run in web workers (with a main-thread fallback) so the progress overlay stays live
 * **Mesh Generation:** Custom CSG/STL pipeline (PIXEstL-aligned palette engine, polygon-prism edge geometry)
 * **Infrastructure:** Static web hosting via GitHub Pages
 
@@ -39,6 +40,12 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
+
+## v2.5.8 changes
+* **Export name field width:** The lithophane name input now stretches to the same width as **Generate Previews** and **Download STLs**.
+* **Icon-only AI generate:** Photo and mask AI generate controls are square sparkles buttons to the left of **Choose File** (same height as the file picker). Labels remain on `title` / `aria-label`. The prompt modal Generate button is unchanged.
+* **Quantization web worker:** Palette quantization runs in a module worker with row-level progress and a main-thread fallback, so Generate Previews can show “Quantizing colors…” without freezing the UI.
+* **STL + ZIP web worker:** Mesh emission (plate, border, color rows, texture) and JSZip compression run in a worker with phase progress (including ZIP percent). Image prep (canvas resize/quantize/PNG) stays on the main thread. Falls back to the main thread if the worker fails to start.
 
 ## v2.5.7 changes
 * **Border overlap control:** New **Border overlap (mm)** setting (default **0.4 mm**) shifts both inner and outer border ring edges inward by the same amount, closing gaps between lithophane cuboids and the vector border on curved shapes while keeping printed border width unchanged. Applies to preview compositing and `layer-border.stl`. Replaces the hardcoded `pw/2` inner inset from v2.5.5. Plate, lithophane clip, and canvas bounds still use the full mask/silhouette.

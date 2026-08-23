@@ -4,20 +4,31 @@ import { Palette } from '../palette/palette'
 import {
   applyPolygonStencil,
   checkRatio,
+  cloneImageData,
   compositeBorderRing,
   convertToBlackAndWhite,
   flipImage,
   getImageDataFromCanvas,
-  imageDataToCanvas,
+  imageDataToPngBlob,
   resizeImage,
 } from '../util/imageUtil'
 import { buildBorderRingPolygons, type SilhouettePolygons } from '../util/maskPolygon'
-import { buildZip, type ProgressFn } from '../stl/stlMaker'
+import { type ProgressFn } from '../stl/stlMaker'
+import { buildStlZip } from '../workers/stlZipClient'
 
 export type { SilhouettePolygons } from '../util/maskPolygon'
 
+export type PreviewPhase = 'quantize' | 'color-stencil' | 'texture' | 'border'
+
+export interface PreviewProgressEvent {
+  phase: PreviewPhase
+  current: number
+  total: number
+}
+
 export interface PlateGeneratorOptions {
   onProgress?: ProgressFn
+  onPreviewProgress?: (p: PreviewProgressEvent, pass: 'stl' | 'preview') => void
   signal?: AbortSignal
   /** Required: vector silhouette in mm space matching the rectified source image. */
   polygons: SilhouettePolygons
@@ -29,28 +40,119 @@ export interface PreviewImages {
   textureImage: ImageData | null
 }
 
-export type PreviewPhase = 'quantize' | 'color-stencil' | 'texture' | 'border'
+export interface PreviewAndStlImages {
+  preview: PreviewImages
+  stl: PreviewImages
+}
 
-export interface PreviewProgressEvent {
-  phase: PreviewPhase
-  current: number
-  total: number
+function applyLayerStencils(
+  quantized: ImageData,
+  polygons: SilhouettePolygons,
+  destW: number,
+  destH: number,
+  pixelMm: number,
+  rasterWidth: number,
+  rasterHeight: number,
+  borderOverlapMm: number,
+  onProgress?: (p: PreviewProgressEvent) => void,
+): { preview: ImageData; stl: ImageData } {
+  const xOff = (destW - rasterWidth * pixelMm) / 2
+  const yOff = (destH - rasterHeight * pixelMm) / 2
+
+  const preview = cloneImageData(quantized)
+  applyPolygonStencil(preview, polygons.maskPolygonMm, 0, 0, pixelMm, 'preview')
+  onProgress?.({ phase: 'border', current: 0, total: 1 })
+  const { ringInner, ringOuter } = buildBorderRingPolygons(
+    polygons.maskPolygonMm,
+    polygons.silhouettePolygonMm,
+    borderOverlapMm,
+  )
+  compositeBorderRing(preview, ringInner, ringOuter, destW, destH, pixelMm)
+
+  // STL stencil origin is shifted so raster cells match cuboid placement
+  // (`[x*pw + xOff - pw/2, x*pw + xOff + pw/2]`). Preview keeps (0, 0) so it
+  // stays aligned with `compositeBorderRing`.
+  const stl = cloneImageData(quantized)
+  applyPolygonStencil(
+    stl,
+    polygons.maskPolygonMm,
+    xOff - pixelMm / 2,
+    yOff - pixelMm / 2,
+    pixelMm,
+    'stl',
+  )
+
+  return { preview, stl }
+}
+
+/**
+ * Quantize (and convert texture) once, then produce both the on-screen /
+ * ZIP preview rasters and the binary STL-clip rasters from clones.
+ */
+export async function buildPreviewAndStlImages(
+  sourceImage: HTMLImageElement | ImageBitmap | HTMLCanvasElement,
+  polygons: SilhouettePolygons,
+  palette: Palette,
+  genInstruction: GenInstruction,
+  onProgress?: (p: PreviewProgressEvent) => void,
+): Promise<PreviewAndStlImages> {
+  const preview: PreviewImages = { colorImage: null, textureImage: null }
+  const stl: PreviewImages = { colorImage: null, textureImage: null }
+
+  const destW = genInstruction.destImageWidth
+  const destH = genInstruction.destImageHeight
+
+  if (genInstruction.colorLayer) {
+    const cpw = genInstruction.colorPixelWidth
+    const colorCanvas = resizeImage(sourceImage, destW, destH, cpw)
+    let colorData = getImageDataFromCanvas(colorCanvas)
+    colorData = await palette.quantizeColors(colorData, (p) => {
+      onProgress?.({ phase: 'quantize', current: p.current, total: p.total })
+    })
+
+    onProgress?.({ phase: 'color-stencil', current: 0, total: 1 })
+    const layers = applyLayerStencils(
+      colorData,
+      polygons,
+      destW,
+      destH,
+      cpw,
+      colorCanvas.width,
+      colorCanvas.height,
+      genInstruction.borderOverlapMm,
+      onProgress,
+    )
+    preview.colorImage = layers.preview
+    stl.colorImage = layers.stl
+  }
+
+  if (genInstruction.textureLayer) {
+    onProgress?.({ phase: 'texture', current: 0, total: 1 })
+    const tpw = genInstruction.texturePixelWidth
+    const texCanvas = resizeImage(sourceImage, destW, destH, tpw)
+    let texData = getImageDataFromCanvas(texCanvas)
+    texData = convertToBlackAndWhite(texData)
+    const layers = applyLayerStencils(
+      texData,
+      polygons,
+      destW,
+      destH,
+      tpw,
+      texCanvas.width,
+      texCanvas.height,
+      genInstruction.borderOverlapMm,
+    )
+    preview.textureImage = layers.preview
+    stl.textureImage = layers.stl
+  }
+
+  return { preview, stl }
 }
 
 /**
  * Build the palette-quantized color preview and the B&W texture preview at
  * the resolutions used by the STL generator (`colorPixelWidth` and
- * `texturePixelWidth` respectively). The same call powers both:
- *  - the on-screen previews in main.ts, and
- *  - the `image-color-preview.png` / `image-texture-preview.png` saved into
- *    the exported zip, so the two always match.
- *
- * `sourceImage` is the photo-only rectified composite — photo placed in mm
- * space, clipped to the mask, transparent elsewhere. Coordinates map 1:1 to
- * polygon mm space (origin at top-left, x = mm).
- *
- * Pipeline per layer: resize → lithophane process → mask stencil → (preview
- * only) fine-vector border composite.
+ * `texturePixelWidth` respectively).
  *
  * `stencilMode`:
  *  - `'preview'`: mask clip + white border ring composited at fine resolution.
@@ -64,101 +166,14 @@ export async function buildPreviewImages(
   stencilMode: 'preview' | 'stl' = 'preview',
   onProgress?: (p: PreviewProgressEvent) => void,
 ): Promise<PreviewImages> {
-  let colorImage: ImageData | null = null
-  let textureImage: ImageData | null = null
-
-  const { maskPolygonMm, silhouettePolygonMm } = polygons
-  const destW = genInstruction.destImageWidth
-  const destH = genInstruction.destImageHeight
-
-  if (genInstruction.colorLayer) {
-    const cpw = genInstruction.colorPixelWidth
-    const colorCanvas = resizeImage(sourceImage, destW, destH, cpw)
-    let colorData = getImageDataFromCanvas(colorCanvas)
-    colorData = await palette.quantizeColors(colorData, (p) => {
-      onProgress?.({ phase: 'quantize', current: p.current, total: p.total })
-    })
-
-    onProgress?.({ phase: 'color-stencil', current: 0, total: 1 })
-
-    // In 'stl' mode, shift the stencil rasterizer origin so its pixel area in
-    // world coordinates matches where the cuboid emitter actually places each
-    // cuboid (`[x*pw + xOff - pw/2, x*pw + xOff + pw/2]`). Without this shift
-    // the stencil decision is made about a different world area than the
-    // cuboid, leaving up to a `pw/2` gap between the lithophane edge cuboids
-    // and the border ring's inner wall. Preview mode keeps origin (0, 0) so
-    // it stays aligned with `compositeBorderRing`.
-    const colorXOff = (destW - colorCanvas.width * cpw) / 2
-    const colorYOff = (destH - colorCanvas.height * cpw) / 2
-    const colorStencilOriginX = stencilMode === 'stl' ? colorXOff - cpw / 2 : 0
-    const colorStencilOriginY = stencilMode === 'stl' ? colorYOff - cpw / 2 : 0
-
-    applyPolygonStencil(
-      colorData,
-      maskPolygonMm,
-      colorStencilOriginX,
-      colorStencilOriginY,
-      cpw,
-      stencilMode,
-    )
-    if (stencilMode === 'preview') {
-      onProgress?.({ phase: 'border', current: 0, total: 1 })
-      const { ringInner, ringOuter } = buildBorderRingPolygons(
-        maskPolygonMm,
-        silhouettePolygonMm,
-        genInstruction.borderOverlapMm,
-      )
-      compositeBorderRing(
-        colorData,
-        ringInner,
-        ringOuter,
-        destW,
-        destH,
-        cpw,
-      )
-    }
-    colorImage = colorData
-  }
-
-  if (genInstruction.textureLayer) {
-    onProgress?.({ phase: 'texture', current: 0, total: 1 })
-    const tpw = genInstruction.texturePixelWidth
-    const texCanvas = resizeImage(sourceImage, destW, destH, tpw)
-    let texData = getImageDataFromCanvas(texCanvas)
-    texData = convertToBlackAndWhite(texData)
-
-    const texXOff = (destW - texCanvas.width * tpw) / 2
-    const texYOff = (destH - texCanvas.height * tpw) / 2
-    const texStencilOriginX = stencilMode === 'stl' ? texXOff - tpw / 2 : 0
-    const texStencilOriginY = stencilMode === 'stl' ? texYOff - tpw / 2 : 0
-
-    applyPolygonStencil(
-      texData,
-      maskPolygonMm,
-      texStencilOriginX,
-      texStencilOriginY,
-      tpw,
-      stencilMode,
-    )
-    if (stencilMode === 'preview') {
-      const { ringInner, ringOuter } = buildBorderRingPolygons(
-        maskPolygonMm,
-        silhouettePolygonMm,
-        genInstruction.borderOverlapMm,
-      )
-      compositeBorderRing(
-        texData,
-        ringInner,
-        ringOuter,
-        destW,
-        destH,
-        tpw,
-      )
-    }
-    textureImage = texData
-  }
-
-  return { colorImage, textureImage }
+  const both = await buildPreviewAndStlImages(
+    sourceImage,
+    polygons,
+    palette,
+    genInstruction,
+    onProgress,
+  )
+  return stencilMode === 'stl' ? both.stl : both.preview
 }
 
 export async function generatePlateZip(
@@ -184,43 +199,34 @@ export async function generatePlateZip(
     palette.restrictFullColors(sourceImage, genInstruction.colorNumber)
   }
 
-  const stlPreviews = await buildPreviewImages(sourceImage, polygons, palette, genInstruction, 'stl')
-
-  // For the PNG previews in the zip, also build a smooth-edged preview pass
-  // (anti-aliased) so the exported images look great regardless of grid size.
-  const visualPreviews = await buildPreviewImages(
+  const both = await buildPreviewAndStlImages(
     sourceImage,
     polygons,
     palette,
     genInstruction,
-    'preview',
+    (p) => options.onPreviewProgress?.(p, p.phase === 'quantize' ? 'stl' : 'preview'),
   )
-  const previewColorBlob = visualPreviews.colorImage
-    ? await canvasToBlob(canvasFromImageData(visualPreviews.colorImage))
+  const previewColorBlob = both.preview.colorImage
+    ? await imageDataToPngBlob(both.preview.colorImage)
     : null
-  const previewTextureBlob = visualPreviews.textureImage
-    ? await canvasToBlob(canvasFromImageData(visualPreviews.textureImage))
+  const previewTextureBlob = both.preview.textureImage
+    ? await imageDataToPngBlob(both.preview.textureImage)
     : null
 
-  const flipColor = stlPreviews.colorImage ? flipImage(stlPreviews.colorImage) : null
-  const flipTexture = stlPreviews.textureImage ? flipImage(stlPreviews.textureImage) : null
+  const flipColor = both.stl.colorImage ? flipImage(both.stl.colorImage) : null
+  const flipTexture = both.stl.textureImage ? flipImage(both.stl.textureImage) : null
 
-  return buildZip(flipColor, flipTexture, palette, genInstruction, {
+  return buildStlZip({
+    colorImage: flipColor,
+    texturedImage: flipTexture,
+    palette,
+    paletteJson,
+    genInstruction,
+    polygons,
     previewColorPng: previewColorBlob,
     previewTexturePng: previewTextureBlob,
-    polygons,
+    extraFiles: options.extraFiles,
     onProgress: options.onProgress,
     signal: options.signal,
-    extraFiles: options.extraFiles,
-  })
-}
-
-function canvasFromImageData(imageData: ImageData): HTMLCanvasElement {
-  return imageDataToCanvas(imageData)
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png')
   })
 }

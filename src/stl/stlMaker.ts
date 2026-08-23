@@ -35,19 +35,26 @@ function appendFacets(target: string[], source: string[]): void {
   for (const f of source) target.push(f)
 }
 
+function canYieldToUi(): boolean {
+  return typeof requestAnimationFrame === 'function'
+}
+
 async function processRows(
   height: number,
   rowFn: (y: number) => string[],
   onProgress: ProgressFn | undefined,
   phase: string,
   chunkRows: number,
+  yieldBetweenChunks: boolean,
 ): Promise<string[]> {
   const all: string[] = []
   for (let y = 0; y < height; y++) {
     appendFacets(all, rowFn(y))
     if (chunkRows > 0 && y % chunkRows === chunkRows - 1) {
       onProgress?.({ phase, current: y + 1, total: height })
-      await new Promise((r) => requestAnimationFrame(r))
+      if (yieldBetweenChunks) {
+        await new Promise((r) => requestAnimationFrame(r))
+      }
     }
   }
   onProgress?.({ phase, current: height, total: height })
@@ -134,9 +141,12 @@ export async function buildZip(
     signal?: AbortSignal
     rowChunk?: number
     extraFiles?: Record<string, Blob>
+    /** Yield to the UI between row chunks (main thread). Off in workers. */
+    yieldBetweenChunks?: boolean
   },
 ): Promise<Blob> {
   const { onProgress, signal, rowChunk = 2 } = options
+  const yieldBetweenChunks = options.yieldBetweenChunks ?? canYieldToUi()
   const checkAbort = () => {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   }
@@ -279,17 +289,26 @@ export async function buildZip(
           colorPlateLayerNb,
         )
         colorJob++
+        const colorRowTotal = totalColorJobs * colorImage.height
+        const colorRowOffset = (colorJob - 1) * colorImage.height
         onProgress?.({
-          phase: `color-${colorName}-${i + 1}`,
-          current: colorJob,
-          total: totalColorJobs,
+          phase: 'color',
+          current: colorRowOffset,
+          total: colorRowTotal,
         })
         const facets = await processRows(
           colorImage.height,
           (y) => runColorRow(csgWorkData, y),
-          undefined,
+          (p) => {
+            onProgress?.({
+              phase: 'color',
+              current: colorRowOffset + p.current,
+              total: colorRowTotal,
+            })
+          },
           'color',
           rowChunk,
+          yieldBetweenChunks,
         )
         if (facets.length > 0) {
           zip.file(`${threadName}.stl`, concatFacets(facets))
@@ -332,6 +351,7 @@ export async function buildZip(
       onProgress,
       'texture',
       rowChunk,
+      yieldBetweenChunks,
     )
 
     zip.file(`${threadName}.stl`, concatFacets(facets))
@@ -339,7 +359,14 @@ export async function buildZip(
 
   checkAbort()
 
-  return zip.generateAsync({ type: 'blob' })
+  onProgress?.({ phase: 'zip', current: 0, total: 100 })
+  return zip.generateAsync({ type: 'blob' }, (metadata) => {
+    onProgress?.({
+      phase: 'zip',
+      current: Math.max(0, Math.min(100, Math.round(metadata.percent))),
+      total: 100,
+    })
+  })
 }
 
 function polygonSpanX(set: PolygonSet): number {

@@ -324,12 +324,29 @@ export function flipImage(imageData: ImageData): ImageData {
   return ctx.getImageData(0, 0, width, height)
 }
 
+export function cloneImageData(imageData: ImageData): ImageData {
+  return new ImageData(
+    new Uint8ClampedArray(imageData.data),
+    imageData.width,
+    imageData.height,
+  )
+}
+
 export function imageDataToCanvas(imageData: ImageData): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = imageData.width
   c.height = imageData.height
   c.getContext('2d')!.putImageData(imageData, 0, 0)
   return c
+}
+
+export function imageDataToPngBlob(imageData: ImageData): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    imageDataToCanvas(imageData).toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+      'image/png',
+    )
+  })
 }
 
 export function rgbaAt(imageData: ImageData, x: number, y: number): Rgba {

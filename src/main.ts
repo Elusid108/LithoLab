@@ -13,7 +13,8 @@ import {
   PixelCreationMethod,
   type GenInstruction,
 } from './genInstruction'
-import { buildPreviewImages, generatePlateZip, type PreviewProgressEvent } from './generator/plateGenerator'
+import { buildPreviewAndStlImages, type PreviewProgressEvent } from './generator/plateGenerator'
+import type { StlProgress } from './stl/stlMaker'
 import { Palette } from './palette/palette'
 import {
   decimatePolygonSet,
@@ -64,6 +65,8 @@ import {
   type BorderProfile,
 } from './border/routerPresets'
 import { DEFAULT_MASKS, defaultMaskUrl } from './data/defaultMasks'
+import { flipImage, imageDataToPngBlob } from './util/imageUtil'
+import { buildStlZip } from './workers/stlZipClient'
 import {
   canvasToPngBlob,
   downscaleCanvasToJpeg,
@@ -177,7 +180,10 @@ function initPalette(): void {
       currentPaletteJson = next
     },
     getDefaultPalette: () => defaultPalette as unknown as PaletteJson,
-    onChange: refreshInlinePalette,
+    onChange: () => {
+      refreshInlinePalette()
+      invalidatePreviews()
+    },
   })
   refreshInlinePalette()
 }
@@ -635,6 +641,12 @@ interface GeneratedPreviewData {
   maskPolygonMm: PolygonSet
   /** Silhouette polygon (mask offset by border XY) in mm. Defines the printed outline. */
   silhouettePolygonMm: PolygonSet
+  /** Binary-clipped rasters for mesh emission (not flipped). */
+  stlColorImage: ImageData | null
+  stlTextureImage: ImageData | null
+  /** Preview PNGs matching the on-screen canvases, packed into the ZIP. */
+  previewColorPng: Blob | null
+  previewTexturePng: Blob | null
 }
 
 type HistorySource = 'upload' | 'ai'
@@ -816,6 +828,8 @@ function setExportButtonsEnabled(enabled: boolean): void {
 function invalidatePreviews(): void {
   state.pixelData = null
   setExportButtonsEnabled(false)
+  renderImageDataToCanvas('colorPreviewCanvas', null)
+  renderImageDataToCanvas('texturePreviewCanvas', null)
 }
 
 function cacheKeyFromSrc(src: string): string {
@@ -1361,6 +1375,7 @@ function updateDims(changed: 'w' | 'h'): void {
   }
   updateInputsFromState()
   updateExportGridReadout()
+  invalidatePreviews()
 }
 
 function updateUnitDisplay(): void {
@@ -1626,6 +1641,34 @@ function mapPreviewProgress(p: PreviewProgressEvent): void {
   }
 }
 
+function mapExportStlProgress(p: StlProgress): void {
+  if (p.phase === 'plate') {
+    ui.update(36, 'Building plate…', '')
+    return
+  }
+  if (p.phase === 'border') {
+    ui.update(40, 'Building border…', '')
+    return
+  }
+  if (p.phase === 'color') {
+    const t = p.total > 0 ? p.current / p.total : 0
+    const pct = 42 + Math.round(t * 36)
+    ui.update(Math.min(77, pct), 'Building color layers…', `${p.current} / ${p.total}`)
+    return
+  }
+  if (p.phase === 'texture') {
+    const t = p.total > 0 ? p.current / p.total : 0
+    const pct = 78 + Math.round(t * 12)
+    ui.update(pct, 'Building texture…', `Row ${p.current} / ${p.total}`)
+    return
+  }
+  if (p.phase === 'zip') {
+    const t = p.total > 0 ? p.current / p.total : 0
+    const pct = 90 + Math.round(t * 9)
+    ui.update(pct, 'Compressing ZIP…', `${Math.round(t * 100)}%`)
+  }
+}
+
 async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void> {
   if (!state.photo.loaded) {
     void window.alert('Please upload a Photo first.')
@@ -1677,14 +1720,13 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
   }
 
   ui.update(20, 'Quantizing colors…', '')
-  let previews: { colorImage: ImageData | null; textureImage: ImageData | null }
+  let both: Awaited<ReturnType<typeof buildPreviewAndStlImages>>
   try {
-    previews = await buildPreviewImages(
+    both = await buildPreviewAndStlImages(
       scene.composite,
       { maskPolygonMm: scene.maskPolygonMm, silhouettePolygonMm: scene.silhouettePolygonMm },
       palette,
       gen,
-      'preview',
       mapPreviewProgress,
     )
   } catch (e) {
@@ -1694,8 +1736,24 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
     return
   }
 
-  renderImageDataToCanvas('colorPreviewCanvas', previews.colorImage)
-  renderImageDataToCanvas('texturePreviewCanvas', previews.textureImage)
+  renderImageDataToCanvas('colorPreviewCanvas', both.preview.colorImage)
+  renderImageDataToCanvas('texturePreviewCanvas', both.preview.textureImage)
+
+  let previewColorPng: Blob | null = null
+  let previewTexturePng: Blob | null = null
+  try {
+    previewColorPng = both.preview.colorImage
+      ? await imageDataToPngBlob(both.preview.colorImage)
+      : null
+    previewTexturePng = both.preview.textureImage
+      ? await imageDataToPngBlob(both.preview.textureImage)
+      : null
+  } catch (e) {
+    ui.hide()
+    console.error(e)
+    void window.alert(e instanceof Error ? e.message : String(e))
+    return
+  }
 
   state.pixelData = {
     rectifiedComposite: scene.composite,
@@ -1703,6 +1761,10 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
     heightMm: scene.heightMm,
     maskPolygonMm: scene.maskPolygonMm,
     silhouettePolygonMm: scene.silhouettePolygonMm,
+    stlColorImage: both.stl.colorImage,
+    stlTextureImage: both.stl.textureImage,
+    previewColorPng,
+    previewTexturePng,
   }
   setExportButtonsEnabled(true)
 
@@ -1739,7 +1801,7 @@ function onBorderWidthChange(): void {
   updateExportGridReadout()
   updateRouterButtonState()
   refreshRouterCanvasIfOpen()
-  if (state.pixelData) void generateLayers({ saveToLibrary: false })
+  invalidatePreviews()
 }
 
 function onBorderHeightChange(): void {
@@ -1751,13 +1813,17 @@ function onBorderHeightChange(): void {
 function onBorderOverlapChange(): void {
   syncExportSettingsFromInputs()
   updateExportGridReadout()
-  if (state.pixelData) void generateLayers({ saveToLibrary: false })
+  invalidatePreviews()
 }
 
 function onPixelSizeChange(): void {
   syncExportSettingsFromInputs()
   updateExportGridReadout()
-  if (state.pixelData) void generateLayers({ saveToLibrary: false })
+  invalidatePreviews()
+}
+
+function onPreviewSettingsChange(): void {
+  invalidatePreviews()
 }
 
 function readInputFloat(id: string, fallback: number): number {
@@ -2650,23 +2716,34 @@ async function exportDownload(): Promise<void> {
       state.pixelData.rectifiedComposite,
     )
 
-    ui.update(18, 'Generating ZIP…', '')
-    const zipBlob = await generatePlateZip(
-      state.pixelData.rectifiedComposite,
-      JSON.stringify(currentPaletteJson),
-      gen,
-      {
-        polygons: {
-          maskPolygonMm: state.pixelData.maskPolygonMm,
-          silhouettePolygonMm: state.pixelData.silhouettePolygonMm,
-        },
-        extraFiles,
-        onProgress: (p) => {
-          const pct = p.total > 0 ? 18 + Math.round((p.current / p.total) * 77) : 50
-          ui.update(Math.min(96, Math.max(18, pct)), p.phase, '')
-        },
+    ui.update(35, 'Building meshes…', '')
+    const paletteJson = JSON.stringify(currentPaletteJson)
+    const palette = new Palette(paletteJson, gen)
+    if (
+      gen.pixelCreationMethod === PixelCreationMethod.FULL &&
+      gen.colorNumber !== 0
+    ) {
+      palette.restrictFullColors(state.pixelData.rectifiedComposite, gen.colorNumber)
+    }
+    const zipBlob = await buildStlZip({
+      colorImage: state.pixelData.stlColorImage
+        ? flipImage(state.pixelData.stlColorImage)
+        : null,
+      texturedImage: state.pixelData.stlTextureImage
+        ? flipImage(state.pixelData.stlTextureImage)
+        : null,
+      palette,
+      paletteJson,
+      genInstruction: gen,
+      polygons: {
+        maskPolygonMm: state.pixelData.maskPolygonMm,
+        silhouettePolygonMm: state.pixelData.silhouettePolygonMm,
       },
-    )
+      extraFiles,
+      previewColorPng: state.pixelData.previewColorPng,
+      previewTexturePng: state.pixelData.previewTexturePng,
+      onProgress: mapExportStlProgress,
+    })
     downloadBlob(zipBlob, `${base}.zip`)
     ui.update(100, 'Done', '')
   } catch (e) {
@@ -2699,9 +2776,23 @@ function attachCanvasInteraction(): void {
   })
 
   window.addEventListener('mouseup', () => {
+    const wasDragging = state.isDragging
+    const init = dragInitial
+    const layer = state[state.activeLayer]
     state.isDragging = false
     state.dragAction = null
     dragInitial = null
+    if (
+      wasDragging &&
+      init &&
+      (layer.x !== init.x ||
+        layer.y !== init.y ||
+        layer.w !== init.w ||
+        layer.h !== init.h ||
+        layer.rot !== init.rot)
+    ) {
+      invalidatePreviews()
+    }
   })
 
   cvs.addEventListener('mousemove', (e) => {
@@ -2843,6 +2934,7 @@ function init(): void {
     onBorderHeightChange,
     onBorderOverlapChange,
     onPixelSizeChange,
+    onPreviewSettingsChange,
     generateLayers,
     exportDownload,
     exportProject,

@@ -175,6 +175,19 @@ input[type="file"] {
     color: #aaa; 
 }
 
+.file-pick-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 26px;
+}
+.file-pick-row input[type="file"] {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    height: 26px;
+}
+
 /* AI Buttons */
 .ai-feature {
     display: none; /* Hidden by default until API key present */
@@ -200,6 +213,20 @@ input[type="file"] {
     transform: scale(1.02);
     box-shadow: 0 4px 10px rgba(106, 17, 203, 0.4);
 }
+.ai-btn-icon {
+    flex: 0 0 26px;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+}
+.ai-btn-icon:hover {
+    transform: scale(1.06);
+}
 .dl-btn {
     background: #444;
     border: none;
@@ -208,6 +235,12 @@ input[type="file"] {
     border-radius: 4px;
     cursor: pointer;
     display: none; /* Hidden unless content is AI generated */
+}
+.file-pick-row .dl-btn {
+    flex-shrink: 0;
+    padding: 4px 6px;
+    height: 26px;
+    box-sizing: border-box;
 }
 .dl-btn:hover { background: #555; }
 
@@ -272,6 +305,9 @@ input[type="file"] {
 .strip-scroller + .ai-feature,
 .preset-strip-label + .strip-scroller {
     margin-top: 6px;
+}
+.strip-scroller + .file-pick-row {
+    margin-top: 8px;
 }
 .mask-preset-strip {
     margin-top: 0;
@@ -525,9 +561,16 @@ button:disabled {
 
 .export-row {
     display: flex;
+    flex-direction: column;
+    align-items: stretch;
     gap: 10px;
-    align-items: center;
     margin-top: 10px;
+}
+.export-row .input-group,
+.export-row .text-input,
+.export-row .process-btn {
+    width: 100%;
+    box-sizing: border-box;
 }
 .export-format-select {
     flex: 0 0 auto;
@@ -538,9 +581,6 @@ button:disabled {
     border-radius: 4px;
     font-size: 14px;
     cursor: pointer;
-}
-.export-row .process-btn {
-    flex: 1;
 }
 
 /* Output Preview */
