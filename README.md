@@ -11,7 +11,7 @@ Lithophane generation is based on [PIXEstL](https://github.com/gaugo87/PIXEstL) 
 * **Palette Manager:** Add or remove filaments from a tile-based editor, pick from the bundled Bambu-style filament catalog, create custom colors (hex or HSL with auto-generated layer ramps), and import/export palette JSON. Your active palette is saved in the browser.
 * **Palette-Accurate Previews:** Combined Color and Texture preview panes match the PNGs included in the exported ZIP, so what you see is what you print.
 * **Vector-Smooth Masks & Borders:** Lithophane pixel reduction applies to photo content only; the mask and white border are composited afterward at fine vector resolution (0.05 mm) so curved edges stay smooth in previews. STL border/plate geometry uses decimated polygon prisms (no pixel stair-steps) with stack-safe mesh emission for reliable ZIP export on complex shapes (e.g. hearts).
-* **Separate STL Objects for Slicing:** Exports include `layer-plate.stl` (support under the photo area only), `layer-border.stl` (white border ring as its own object for a different filament/color), plus per-color and texture layers — so Bambu Studio and similar slicers can assign materials independently. Plate, border, color, and texture layers share a common XY center and sit flat on the build plate (Z=0) when imported as a group.
+* **Separate STL Objects for Slicing:** Exports put all meshes in `stl/` (`layer-plate.stl` under the photo area only, `layer-border.stl` as its own object, plus per-color and texture layers) so you can Select All in the slicer without picking previews or project files. Plate, border, color, and texture layers share a common XY center and sit flat on the build plate (Z=0) when imported as a group.
 * **Organized Sidebar Layout:** Settings are grouped into **Color Generation** (palette, plate thickness, pixel width, layer count, mode) and **Texture Generation** (pixel size, min/max thickness) sections for a clearer workflow. **Generate Previews** and **Download STLs** are stacked at the bottom.
 * **Border & Export Settings:** Numeric inputs for border **width** (mm), border **height** (mm, Z-thickness of the top ring), **border overlap** (mm, inward shift of the ring to close lithophane gaps without changing printed width), and **pixel size** (mm) for precise control without sliders. Default **color pixel width** is **0.4 mm** for finer color detail.
 * **Interactive Editing Workflow:** Upload or AI-generate images, manipulate assets on a canvas with vector mask compositing, generate previews, and export a ready-to-print ZIP archive.
@@ -40,6 +40,9 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
+
+## v2.5.10 changes
+* **ZIP folders:** Download STLs now groups files so slicers can import meshes without extra files. `stl/` holds every `.stl`; `previews/` holds the color/texture PNGs; `originals/` holds the source photo, mask, and masked composite. `instructions.txt` and the `.litholab` project stay at the ZIP root.
 
 ## v2.5.9 changes
 * **Cached STL export:** Generate Previews quantizes once and stores STL-clip rasters plus the preview PNGs drawn to the canvases. Download STLs meshes from that cache (no second quantize pass), so ZIP preview PNGs match the on-screen Color/Texture panes.

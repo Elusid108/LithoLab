@@ -126,7 +126,7 @@ function buildBorderFacets(
  *
  * Polygon prisms use Y-flipped mm coordinates so they align with flipped
  * color/texture rasters. Support plate follows the inner mask only; the white
- * border ring is exported as `layer-border.stl` for separate slicer materials.
+ * border ring is exported as `stl/layer-border.stl` for separate slicer materials.
  */
 export async function buildZip(
   colorImage: ImageData | null,
@@ -200,10 +200,10 @@ export async function buildZip(
   const zip = new JSZip()
 
   if (options.previewColorPng) {
-    zip.file('image-color-preview.png', options.previewColorPng)
+    zip.file('previews/image-color-preview.png', options.previewColorPng)
   }
   if (options.previewTexturePng) {
-    zip.file('image-texture-preview.png', options.previewTexturePng)
+    zip.file('previews/image-texture-preview.png', options.previewTexturePng)
   }
   if (options.extraFiles) {
     for (const [name, blob] of Object.entries(options.extraFiles)) {
@@ -230,7 +230,7 @@ export async function buildZip(
       flatPrismOpts,
       polyWidthMm,
     )
-    zip.file('layer-plate.stl', concatFacets(plateFacets))
+    zip.file('stl/layer-plate.stl', concatFacets(plateFacets))
     onProgress?.({ phase: 'plate', current: 1, total: 1 })
 
     checkAbort()
@@ -257,7 +257,7 @@ export async function buildZip(
       colorPlateLayerNb,
     )
     if (borderFacets.length > 0) {
-      zip.file('layer-border.stl', concatFacets(borderFacets))
+      zip.file('stl/layer-border.stl', concatFacets(borderFacets))
     }
     onProgress?.({ phase: 'border', current: 1, total: 1 })
 
@@ -311,7 +311,7 @@ export async function buildZip(
           yieldBetweenChunks,
         )
         if (facets.length > 0) {
-          zip.file(`${threadName}.stl`, concatFacets(facets))
+          zip.file(`stl/${threadName}.stl`, concatFacets(facets))
         }
       }
     }
@@ -354,7 +354,7 @@ export async function buildZip(
       yieldBetweenChunks,
     )
 
-    zip.file(`${threadName}.stl`, concatFacets(facets))
+    zip.file(`stl/${threadName}.stl`, concatFacets(facets))
   }
 
   checkAbort()

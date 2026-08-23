@@ -2705,13 +2705,13 @@ async function exportDownload(): Promise<void> {
     extraFiles[`${base}.litholab`] = await packCurrentProject()
     if (state.photo.loaded && state.photo.img) {
       const photoBlob = await blobFromLayerImg(state.photo.img)
-      extraFiles[`original-photo.${extForImageBlob(photoBlob)}`] = photoBlob
+      extraFiles[`originals/original-photo.${extForImageBlob(photoBlob)}`] = photoBlob
     }
     if (state.mask.loaded && state.mask.img) {
       const maskBlob = await blobFromLayerImg(state.mask.img)
-      extraFiles[`original-mask.${extForImageBlob(maskBlob)}`] = maskBlob
+      extraFiles[`originals/original-mask.${extForImageBlob(maskBlob)}`] = maskBlob
     }
-    extraFiles['original-masked.png'] = await canvasToPngBlob(
+    extraFiles['originals/original-masked.png'] = await canvasToPngBlob(
       state.pixelData.rectifiedComposite,
     )
 
