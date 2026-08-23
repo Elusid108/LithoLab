@@ -16,6 +16,7 @@ export interface StlZipJobInput {
   genInstruction: GenInstruction
   color: ImageBufferPayload | null
   texture: ImageBufferPayload | null
+  maskRelief: ImageBufferPayload | null
   polygons: SilhouettePolygons
   previewColorPng?: Blob | null
   previewTexturePng?: Blob | null
@@ -63,6 +64,7 @@ export async function runStlZipJob(
       extraFiles: input.extraFiles,
       rowChunk: input.rowChunk,
       yieldBetweenChunks: input.yieldBetweenChunks ?? false,
+      maskReliefImage: imageFromPayload(input.maskRelief),
     },
   )
 }

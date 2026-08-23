@@ -44,6 +44,10 @@ export interface AffineMat {
 export interface SilhouettePolygons {
   maskPolygonMm: PolygonSet
   silhouettePolygonMm: PolygonSet
+  /** Outer boundary loops only (holes omitted). Used for the border ring inner wall. */
+  outerPolygonMm?: PolygonSet
+  /** Interior counters (e.g. the hole in "A") filled with border material. */
+  holePolygonMm?: PolygonSet
 }
 
 /** Mirror polygon Y to match STL raster `flipImage` (y' = heightMm - y). */
@@ -55,18 +59,23 @@ export function flipPolygonSetY(set: PolygonSet, heightMm: number): PolygonSet {
 // Polygon extraction (marching squares on a luminance-thresholded mask)
 // ---------------------------------------------------------------------------
 
+const NEAR_BLACK_LUM = 32
+
 /**
  * Build a binary "inside" array (1 byte per pixel) from an ImageData.
- * A pixel is "inside" when alpha > 0 AND luminance >= threshold.
+ * A pixel is "inside" when it is not near-black (white and mid-gray stay inside
+ * so a dark flower pattern cannot punch a hole). Enclosed pure-black pockets
+ * remain outside and become hole loops in marching squares.
  */
 function maskInsideFromImageData(img: ImageData, threshold: number): Uint8Array {
   const { width, height, data } = img
   const inside = new Uint8Array(width * height)
+  const blackCut = Math.min(threshold, NEAR_BLACK_LUM)
   for (let i = 0, p = 0; p < width * height; p++, i += 4) {
     const a = data[i + 3]
     if (a === 0) continue
     const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
-    if (lum >= threshold) inside[p] = 1
+    if (lum >= blackCut) inside[p] = 1
   }
   return inside
 }
@@ -181,7 +190,7 @@ function extractPolygonsFromBinary(inside: Uint8Array, w: number, h: number): Po
 
 /**
  * Extract a smoothed silhouette polygon set from a luminance image.
- * - `threshold` (default 128) selects which pixels count as "inside".
+ * - `threshold` (default 32) is the near-black cutoff; gray stays inside.
  * - `smoothIters` (default 2) controls how many Chaikin rounds run.
  *
  * Returns polygon coordinates in the same pixel space as `img`.
@@ -190,7 +199,7 @@ export function extractMaskPolygons(
   img: ImageData,
   opts: { threshold?: number; smoothIters?: number; minLoopArea?: number } = {},
 ): PolygonSet {
-  const threshold = opts.threshold ?? 128
+  const threshold = opts.threshold ?? NEAR_BLACK_LUM
   const smoothIters = opts.smoothIters ?? 2
   const minLoopArea = opts.minLoopArea ?? 4 // drop noise sub-pixel loops
   const inside = maskInsideFromImageData(img, threshold)
@@ -295,6 +304,34 @@ export function polygonBounds(set: PolygonSet): { minX: number; minY: number; ma
   return { minX, minY, maxX, maxY }
 }
 
+/** Non-zero / even-odd test against a single closed loop. */
+export function pointInPolygon(pt: Point, loop: Polygon): boolean {
+  const n = loop.length
+  let inside = false
+  let j = n - 1
+  for (let i = 0; i < n; i++) {
+    const a = loop[i]
+    const b = loop[j]
+    if ((a.y > pt.y) !== (b.y > pt.y)) {
+      const xCross = a.x + ((pt.y - a.y) * (b.x - a.x)) / (b.y - a.y)
+      if (pt.x < xCross) inside = !inside
+    }
+    j = i
+  }
+  return inside
+}
+
+export function polygonCentroid(loop: Polygon): Point {
+  let sx = 0
+  let sy = 0
+  for (const p of loop) {
+    sx += p.x
+    sy += p.y
+  }
+  const n = Math.max(1, loop.length)
+  return { x: sx / n, y: sy / n }
+}
+
 /**
  * Even-odd point-in-polygon-set test. Returns `true` if `pt` is inside an
  * odd number of loops (handles holes via opposing winding).
@@ -302,19 +339,36 @@ export function polygonBounds(set: PolygonSet): { minX: number; minY: number; ma
 export function pointInPolygonSet(pt: Point, set: PolygonSet): boolean {
   let inside = false
   for (const loop of set) {
-    const n = loop.length
-    let j = n - 1
-    for (let i = 0; i < n; i++) {
-      const a = loop[i]
-      const b = loop[j]
-      if ((a.y > pt.y) !== (b.y > pt.y)) {
-        const xCross = a.x + ((pt.y - a.y) * (b.x - a.x)) / (b.y - a.y)
-        if (pt.x < xCross) inside = !inside
-      }
-      j = i
-    }
+    if (pointInPolygon(pt, loop)) inside = !inside
   }
   return inside
+}
+
+/**
+ * Split marching-squares loops into outer boundaries (even nesting) and
+ * interior holes (odd nesting), e.g. the counter of a letter A.
+ */
+export function classifyPolygonLoops(set: PolygonSet): { outers: PolygonSet; holes: PolygonSet } {
+  const outers: PolygonSet = []
+  const holes: PolygonSet = []
+  for (const loop of set) {
+    if (loop.length < 3) continue
+    // A vertex on the outer outline is not inside a counter; a hole vertex is
+    // inside the outer fill. Centroids fail for letters like "A" because they
+    // often land in the hole.
+    const sample = loop[0]
+    let nest = 0
+    for (const other of set) {
+      if (other === loop || other.length < 3) continue
+      if (pointInPolygon(sample, other)) nest++
+    }
+    if (nest % 2 === 0) outers.push(loop)
+    else holes.push(loop)
+  }
+  if (outers.length === 0 && holes.length > 0) {
+    return { outers: holes, holes: [] }
+  }
+  return { outers, holes }
 }
 
 // ---------------------------------------------------------------------------

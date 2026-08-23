@@ -8,8 +8,9 @@
  *
  * Two main shapes are supported:
  *   1. emitSilhouettePrism — solid prism extruded from a simple polygon set
- *      (no holes). Used for the support plate.
- *   2. emitRingPrism — annular prism between an outer (silhouette) loop and
+ *      (no holes). Used for hole fills in the border STL.
+ *   2. emitMaskPrism — lithophane-body prism with interior holes (plate).
+ *   3. emitRingPrism — annular prism between an outer (silhouette) loop and
  *      an inner (mask) loop. Used for the white-border ring on both the color
  *      layers and the texture layer.
  *
@@ -18,9 +19,15 @@
  * per-vertex so the polygon geometry matches the rest of the model.
  */
 
+import earcut from 'earcut'
 import type { GenInstruction } from '../genInstruction'
 import type { Polygon, PolygonSet } from '../util/maskPolygon'
-import { signedArea } from '../util/maskPolygon'
+import {
+  classifyPolygonLoops,
+  pointInPolygon,
+  polygonCentroid,
+  signedArea,
+} from '../util/maskPolygon'
 import { curveTriangleList } from './csgThreadTextureRow'
 import { triangleNormal, type BinaryStlBuilder, type Vec3 } from './stl'
 
@@ -203,6 +210,120 @@ export function emitSilhouettePrism(
       const d: Vec3 = [p0.x, p0.y, zTop]
       emitTri(mesh, a, b, c, opts, polygonWidthMm)
       emitTri(mesh, a, c, d, opts, polygonWidthMm)
+    }
+  }
+}
+
+function groupHolesByOuter(
+  outers: PolygonSet,
+  holes: PolygonSet,
+): Array<{ outer: Polygon; holes: Polygon[] }> {
+  const sorted = outers
+    .filter((l) => l.length >= 3)
+    .map((loop) => ({ loop, area: Math.abs(signedArea(loop)) }))
+    .sort((a, b) => a.area - b.area)
+
+  const groups = sorted.map((o) => ({ outer: o.loop, holes: [] as Polygon[] }))
+  for (const hole of holes) {
+    if (hole.length < 3) continue
+    const c = polygonCentroid(hole)
+    const parent = sorted.find((o) => pointInPolygon(c, o.loop))
+    if (!parent) continue
+    const g = groups.find((x) => x.outer === parent.loop)
+    if (g) g.holes.push(hole)
+  }
+  return groups
+}
+
+function emitSideWalls(
+  loop: Polygon,
+  zBottom: number,
+  zTop: number,
+  opts: PrismOptions,
+  polygonWidthMm: number,
+  mesh: BinaryStlBuilder,
+): void {
+  for (let i = 0; i < loop.length; i++) {
+    const p0 = loop[i]
+    const p1 = loop[(i + 1) % loop.length]
+    const a: Vec3 = [p0.x, p0.y, zBottom]
+    const b: Vec3 = [p1.x, p1.y, zBottom]
+    const c: Vec3 = [p1.x, p1.y, zTop]
+    const d: Vec3 = [p0.x, p0.y, zTop]
+    emitTri(mesh, a, b, c, opts, polygonWidthMm)
+    emitTri(mesh, a, c, d, opts, polygonWidthMm)
+  }
+}
+
+/**
+ * Emit a prism for a lithophane mask that may contain interior holes
+ * (even-odd). Outer loops are triangulated with `earcut`; holes are omitted
+ * from the solid so the plate does not occupy counters filled by the border.
+ */
+export function emitMaskPrism(
+  polygons: PolygonSet,
+  zBottom: number,
+  zTop: number,
+  opts: PrismOptions,
+  polygonWidthMm: number,
+  mesh: BinaryStlBuilder,
+): void {
+  const { outers, holes } = classifyPolygonLoops(polygons)
+  if (outers.length === 0) {
+    emitSilhouettePrism(polygons, zBottom, zTop, opts, polygonWidthMm, mesh)
+    return
+  }
+  if (holes.length === 0) {
+    emitSilhouettePrism(outers, zBottom, zTop, opts, polygonWidthMm, mesh)
+    return
+  }
+
+  for (const group of groupHolesByOuter(outers, holes)) {
+    const outerCCW = asCCW(group.outer)
+    if (group.holes.length === 0) {
+      emitSilhouettePrism([outerCCW], zBottom, zTop, opts, polygonWidthMm, mesh)
+      continue
+    }
+
+    const verts: number[] = []
+    const pts: Polygon = []
+    const holeIndices: number[] = []
+    for (const p of outerCCW) {
+      verts.push(p.x, p.y)
+      pts.push(p)
+    }
+    for (const hole of group.holes) {
+      holeIndices.push(pts.length)
+      const holeCW = asCW(hole)
+      for (const p of holeCW) {
+        verts.push(p.x, p.y)
+        pts.push(p)
+      }
+    }
+
+    const tri = earcut(verts, holeIndices, 2)
+    for (let i = 0; i + 2 < tri.length; i += 3) {
+      const i0 = tri[i]
+      const i1 = tri[i + 1]
+      const i2 = tri[i + 2]
+      const a: Vec3 = [pts[i0].x, pts[i0].y, zTop]
+      const b: Vec3 = [pts[i1].x, pts[i1].y, zTop]
+      const c: Vec3 = [pts[i2].x, pts[i2].y, zTop]
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
+    }
+    for (let i = 0; i + 2 < tri.length; i += 3) {
+      const i0 = tri[i]
+      const i1 = tri[i + 1]
+      const i2 = tri[i + 2]
+      const a: Vec3 = [pts[i0].x, pts[i0].y, zBottom]
+      const b: Vec3 = [pts[i2].x, pts[i2].y, zBottom]
+      const c: Vec3 = [pts[i1].x, pts[i1].y, zBottom]
+      emitTri(mesh, a, b, c, opts, polygonWidthMm)
+    }
+
+    emitSideWalls(outerCCW, zBottom, zTop, opts, polygonWidthMm, mesh)
+    for (const hole of group.holes) {
+      emitSideWalls(asCW(hole), zBottom, zTop, opts, polygonWidthMm, mesh)
     }
   }
 }
@@ -390,15 +511,4 @@ export function emitRingPrism(
       emitTri(mesh, a, c, d, opts, polygonWidthMm)
     }
   }
-}
-
-function polygonCentroid(loop: Polygon): { x: number; y: number } {
-  let sx = 0
-  let sy = 0
-  for (const p of loop) {
-    sx += p.x
-    sy += p.y
-  }
-  const n = Math.max(1, loop.length)
-  return { x: sx / n, y: sy / n }
 }

@@ -675,6 +675,59 @@ textarea {
 .ai-extend-btns {
     justify-content: flex-start;
 }
+.ai-mask-type-section {
+    margin: 0 0 14px 0;
+    text-align: left;
+}
+.ai-mask-type-label {
+    font-size: 12px;
+    color: #ccc;
+    margin: 0 0 8px 0;
+    font-weight: 600;
+}
+.ai-mask-kind-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.ai-seg {
+    flex: 1;
+    cursor: pointer;
+}
+.ai-seg input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+.ai-seg span {
+    display: block;
+    text-align: center;
+    padding: 8px 10px;
+    border: 1px solid #444;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #ddd;
+    background: #1e1e1e;
+}
+.ai-seg input:checked + span {
+    border-color: #00d26a;
+    color: #fff;
+    background: #1a3326;
+}
+.ai-mask-gradient {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #ddd;
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+.ai-mask-gradient input {
+    width: 16px;
+    height: 16px;
+    accent-color: #00d26a;
+}
 .ai-extend-btns .ai-btn,
 .ai-extend-btns .cancel-btn {
     flex: 1;

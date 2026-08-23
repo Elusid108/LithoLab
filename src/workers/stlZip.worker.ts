@@ -14,6 +14,7 @@ interface StlZipWorkerRequest {
   genInstruction: GenInstruction
   color: ImageBufferPayload | null
   texture: ImageBufferPayload | null
+  maskRelief: ImageBufferPayload | null
   polygons: SilhouettePolygons
   previewColorPng?: Blob | null
   previewTexturePng?: Blob | null
@@ -37,6 +38,7 @@ workerScope.onmessage = (ev: MessageEvent<StlZipWorkerRequest>) => {
           genInstruction: msg.genInstruction,
           color: msg.color,
           texture: msg.texture,
+          maskRelief: msg.maskRelief,
           polygons: msg.polygons,
           previewColorPng: msg.previewColorPng,
           previewTexturePng: msg.previewTexturePng,

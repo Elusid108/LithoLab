@@ -10,8 +10,10 @@ import {
   flipImage,
   getImageDataFromCanvas,
   imageDataToPngBlob,
+  imageDataToCanvas,
   resizeImage,
 } from '../util/imageUtil'
+import { overlayMaskReliefPreview } from '../util/maskProcess'
 import { buildBorderRingPolygons, type SilhouettePolygons } from '../util/maskPolygon'
 import { type ProgressFn } from '../stl/stlMaker'
 import { buildStlZip } from '../workers/stlZipClient'
@@ -33,11 +35,13 @@ export interface PlateGeneratorOptions {
   /** Required: vector silhouette in mm space matching the rectified source image. */
   polygons: SilhouettePolygons
   extraFiles?: Record<string, Blob>
+  maskGray?: HTMLCanvasElement | HTMLImageElement | ImageBitmap | ImageData | null
 }
 
 export interface PreviewImages {
   colorImage: ImageData | null
   textureImage: ImageData | null
+  maskReliefImage: ImageData | null
 }
 
 export interface PreviewAndStlImages {
@@ -55,12 +59,31 @@ function applyLayerStencils(
   rasterHeight: number,
   borderOverlapMm: number,
   onProgress?: (p: PreviewProgressEvent) => void,
-): { preview: ImageData; stl: ImageData } {
+  relief?: ImageData | null,
+): { preview: ImageData; stl: ImageData; previewRelief: ImageData | null; stlRelief: ImageData | null } {
   const xOff = (destW - rasterWidth * pixelMm) / 2
   const yOff = (destH - rasterHeight * pixelMm) / 2
 
   const preview = cloneImageData(quantized)
   applyPolygonStencil(preview, polygons.maskPolygonMm, 0, 0, pixelMm, 'preview')
+
+  let previewRelief: ImageData | null = null
+  let stlRelief: ImageData | null = null
+  if (relief && relief.width === quantized.width && relief.height === quantized.height) {
+    previewRelief = cloneImageData(relief)
+    applyPolygonStencil(previewRelief, polygons.maskPolygonMm, 0, 0, pixelMm, 'preview')
+    overlayMaskReliefPreview(preview, previewRelief)
+    stlRelief = cloneImageData(relief)
+    applyPolygonStencil(
+      stlRelief,
+      polygons.maskPolygonMm,
+      xOff - pixelMm / 2,
+      yOff - pixelMm / 2,
+      pixelMm,
+      'stl',
+    )
+  }
+
   onProgress?.({ phase: 'border', current: 0, total: 1 })
   const { ringInner, ringOuter } = buildBorderRingPolygons(
     polygons.maskPolygonMm,
@@ -82,7 +105,7 @@ function applyLayerStencils(
     'stl',
   )
 
-  return { preview, stl }
+  return { preview, stl, previewRelief, stlRelief }
 }
 
 /**
@@ -95,9 +118,10 @@ export async function buildPreviewAndStlImages(
   palette: Palette,
   genInstruction: GenInstruction,
   onProgress?: (p: PreviewProgressEvent) => void,
+  maskGray?: HTMLCanvasElement | HTMLImageElement | ImageBitmap | ImageData | null,
 ): Promise<PreviewAndStlImages> {
-  const preview: PreviewImages = { colorImage: null, textureImage: null }
-  const stl: PreviewImages = { colorImage: null, textureImage: null }
+  const preview: PreviewImages = { colorImage: null, textureImage: null, maskReliefImage: null }
+  const stl: PreviewImages = { colorImage: null, textureImage: null, maskReliefImage: null }
 
   const destW = genInstruction.destImageWidth
   const destH = genInstruction.destImageHeight
@@ -132,6 +156,13 @@ export async function buildPreviewAndStlImages(
     const texCanvas = resizeImage(sourceImage, destW, destH, tpw)
     let texData = getImageDataFromCanvas(texCanvas)
     texData = convertToBlackAndWhite(texData)
+    let relief: ImageData | null = null
+    if (maskGray) {
+      const graySource =
+        maskGray instanceof ImageData ? imageDataToCanvas(maskGray) : maskGray
+      const reliefCanvas = resizeImage(graySource, destW, destH, tpw)
+      relief = getImageDataFromCanvas(reliefCanvas)
+    }
     const layers = applyLayerStencils(
       texData,
       polygons,
@@ -141,9 +172,13 @@ export async function buildPreviewAndStlImages(
       texCanvas.width,
       texCanvas.height,
       genInstruction.borderOverlapMm,
+      undefined,
+      relief,
     )
     preview.textureImage = layers.preview
     stl.textureImage = layers.stl
+    preview.maskReliefImage = layers.previewRelief
+    stl.maskReliefImage = layers.stlRelief
   }
 
   return { preview, stl }
@@ -205,6 +240,7 @@ export async function generatePlateZip(
     palette,
     genInstruction,
     (p) => options.onPreviewProgress?.(p, p.phase === 'quantize' ? 'stl' : 'preview'),
+    options.maskGray,
   )
   const previewColorBlob = both.preview.colorImage
     ? await imageDataToPngBlob(both.preview.colorImage)
@@ -215,6 +251,7 @@ export async function generatePlateZip(
 
   const flipColor = both.stl.colorImage ? flipImage(both.stl.colorImage) : null
   const flipTexture = both.stl.textureImage ? flipImage(both.stl.textureImage) : null
+  const flipRelief = both.stl.maskReliefImage ? flipImage(both.stl.maskReliefImage) : null
 
   return buildStlZip({
     colorImage: flipColor,
@@ -228,5 +265,6 @@ export async function generatePlateZip(
     extraFiles: options.extraFiles,
     onProgress: options.onProgress,
     signal: options.signal,
+    maskReliefImage: flipRelief,
   })
 }

@@ -25,6 +25,8 @@ export interface GenInstruction {
   texturePixelWidth: number
   textureMinThickness: number
   textureMaxThickness: number
+  /** Extra Z (mm) added on top of photo texture from dark mask grayscale. */
+  maskMaxThickness: number
   layerThreadMaxNumber: number
   rowThreadNumber: number
   layerThreadTimeout: number
@@ -47,6 +49,7 @@ export const DEFAULT_VALUE_COLOR_PIXEL_LAYER_THICKNESS = 0.05
 export const DEFAULT_VALUE_COLOR_PIXEL_WIDTH = 0.4
 export const DEFAULT_VALUE_TEXTURE_MAX_THICKNESS = 2.7
 export const DEFAULT_VALUE_TEXTURE_MIN_THICKNESS = 0.8
+export const DEFAULT_VALUE_MASK_MAX_THICKNESS = 0.4
 export const DEFAULT_VALUE_TEXTURE_PIXEL_WIDTH = 0.25
 export const DEFAULT_VALUE_LAYER_THREAD_TIMEOUT = 300
 export const DEFAULT_VALUE_ROW_THREAD_MAX_NUMBER =
@@ -72,6 +75,7 @@ export function createDefaultGenInstruction(): GenInstruction {
     texturePixelWidth: DEFAULT_VALUE_TEXTURE_PIXEL_WIDTH,
     textureMinThickness: DEFAULT_VALUE_TEXTURE_MIN_THICKNESS,
     textureMaxThickness: DEFAULT_VALUE_TEXTURE_MAX_THICKNESS,
+    maskMaxThickness: DEFAULT_VALUE_MASK_MAX_THICKNESS,
     layerThreadMaxNumber: DEFAULT_VALUE_LAYER_THREAD_MAX_NUMBER,
     rowThreadNumber: DEFAULT_VALUE_ROW_THREAD_MAX_NUMBER,
     layerThreadTimeout: DEFAULT_VALUE_LAYER_THREAD_TIMEOUT,

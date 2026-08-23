@@ -9,11 +9,14 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/earcut": "^3.0.0",
     "typescript": "~5.9.3",
     "vite": "^5.4.11"
   },
   "dependencies": {
     "@jscad/modeling": "^2.13.0",
+    "earcut": "^3.2.3",
+    "heic-to": "^1.5.2",
     "jszip": "^3.10.1"
   }
 }

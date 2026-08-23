@@ -8,10 +8,11 @@ import { runTextureRowTransparent } from '../csg/csgThreadTextureTransparent'
 import { CSGWorkData } from '../csg/csgWorkData'
 import { BinaryStlBuilder } from '../csg/stl'
 import { hasATransparentPixel } from '../util/imageUtil'
-import { emitRingPrism, emitSilhouettePrism, type PrismOptions } from '../csg/csgPolyPrism'
+import { emitMaskPrism, emitRingPrism, emitSilhouettePrism, type PrismOptions } from '../csg/csgPolyPrism'
 import {
   buildBorderRingPolygons,
   flipPolygonSetY,
+  offsetPolygonSet,
   type PolygonSet,
   type SilhouettePolygons,
 } from '../util/maskPolygon'
@@ -136,6 +137,7 @@ export async function buildZip(
     extraFiles?: Record<string, Blob>
     /** Yield to the UI between row chunks (main thread). Off in workers. */
     yieldBetweenChunks?: boolean
+    maskReliefImage?: ImageData | null
   },
 ): Promise<Blob> {
   const { onProgress, signal, rowChunk = 2 } = options
@@ -152,6 +154,12 @@ export async function buildZip(
   const flipH = genInstruction.destImageHeight
   const maskFlipped = flipPolygonSetY(polygons.maskPolygonMm, flipH)
   const silhouetteFlipped = flipPolygonSetY(polygons.silhouettePolygonMm, flipH)
+  const outerFlipped = flipPolygonSetY(
+    polygons.outerPolygonMm ?? polygons.maskPolygonMm,
+    flipH,
+  )
+  const holeFlipped = flipPolygonSetY(polygons.holePolygonMm ?? [], flipH)
+  const maskRelief = options.maskReliefImage ?? null
 
   const colorStackTop =
     genInstruction.colorPixelLayerThickness * palette.getLayerCount()
@@ -217,7 +225,7 @@ export async function buildZip(
   if (colorImage) {
     onProgress?.({ phase: 'plate', current: 0, total: 1 })
     const plateMesh = new BinaryStlBuilder()
-    emitSilhouettePrism(
+    emitMaskPrism(
       maskFlipped,
       0,
       genInstruction.plateThickness,
@@ -233,7 +241,7 @@ export async function buildZip(
     onProgress?.({ phase: 'border', current: 0, total: 1 })
     const overlap = Math.max(0, genInstruction.borderOverlapMm)
     const { ringInner, ringOuter } = buildBorderRingPolygons(
-      maskFlipped,
+      outerFlipped,
       silhouetteFlipped,
       overlap,
       { cellSize: Math.max(overlap / 12, 1e-6) },
@@ -253,6 +261,23 @@ export async function buildZip(
       colorPlateLayerNb,
       borderMesh,
     )
+    if (holeFlipped.length > 0) {
+      const expanded =
+        overlap > 0
+          ? offsetPolygonSet(holeFlipped, overlap, {
+              cellSize: Math.max(overlap / 12, 1e-6),
+              maxGrid: 2048,
+              smoothIters: 2,
+            })
+          : holeFlipped
+      const holeFill = expanded.length > 0 ? expanded : holeFlipped
+      const holeTop =
+        colorStackTop +
+        (genInstruction.textureLayer && texturedImage != null ? borderHeight : 0)
+      if (holeTop > 0) {
+        emitSilhouettePrism(holeFill, 0, holeTop, flatPrismOpts, polyWidthMm, borderMesh)
+      }
+    }
     if (borderMesh.triangleCount > 0) {
       zip.file('stl/layer-border.stl', finishStl(borderMesh, 'border'))
     }
@@ -336,6 +361,9 @@ export async function buildZip(
       threadName,
       [whiteColor],
       genInstruction,
+      -1,
+      -1,
+      maskRelief,
     )
 
     onProgress?.({ phase: 'texture', current: 0, total: texturedImage.height })

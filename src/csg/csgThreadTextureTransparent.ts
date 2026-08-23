@@ -20,7 +20,15 @@ export function runTextureRowTransparent(
 
   const getH = (x: number, yy: number): number => {
     if (transparentPixel(img, x, yy)) return 0
-    return getPixelHeightTexture(img, x, yy, g.textureMinThickness, g.textureMaxThickness)
+    return getPixelHeightTexture(
+      img,
+      x,
+      yy,
+      g.textureMinThickness,
+      g.textureMaxThickness,
+      csgWorkData.maskReliefImage,
+      g.maskMaxThickness,
+    )
   }
 
   for (let x = 0; x < width - 1; x++) {

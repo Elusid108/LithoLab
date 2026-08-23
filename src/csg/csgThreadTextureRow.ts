@@ -37,6 +37,8 @@ export function getPixelHeightTexture(
   y: number,
   textureMinThickness: number,
   textureMaxThickness: number,
+  maskRelief: ImageData | null = null,
+  maskMaxThickness = 0,
 ): number {
   const i = (y * texturedImage.width + x) * 4
   const pixel = (texturedImage.data[i + 3] << 24) | (texturedImage.data[i] << 16) | (texturedImage.data[i + 1] << 8) | texturedImage.data[i + 2]
@@ -44,6 +46,16 @@ export function getPixelHeightTexture(
   let layerHeight = colorToCMYK(pixelColor)[3]
   layerHeight *= textureMaxThickness - textureMinThickness
   layerHeight += textureMinThickness
+  if (maskRelief && maskMaxThickness > 0 && maskRelief.width === texturedImage.width) {
+    const mi = (y * maskRelief.width + x) * 4
+    if (maskRelief.data[mi + 3] > 0) {
+      const lum =
+        0.2126 * maskRelief.data[mi] +
+        0.7152 * maskRelief.data[mi + 1] +
+        0.0722 * maskRelief.data[mi + 2]
+      layerHeight += ((255 - lum) / 255) * maskMaxThickness
+    }
+  }
   return layerHeight
 }
 
@@ -109,7 +121,15 @@ export function runTextureRowOpaque(
   if (y === height - 1) return
 
   const getH = (x: number, yy: number) =>
-    getPixelHeightTexture(img, x, yy, g.textureMinThickness, g.textureMaxThickness)
+    getPixelHeightTexture(
+      img,
+      x,
+      yy,
+      g.textureMinThickness,
+      g.textureMaxThickness,
+      csgWorkData.maskReliefImage,
+      g.maskMaxThickness,
+    )
 
   for (let x = 0; x < width; x++) {
     if (x === width - 1) continue

@@ -12,6 +12,7 @@ import {
 export interface BuildStlZipInput {
   colorImage: ImageData | null
   texturedImage: ImageData | null
+  maskReliefImage?: ImageData | null
   palette: Palette
   paletteJson: string
   genInstruction: GenInstruction
@@ -85,6 +86,7 @@ async function buildStlZipOnMain(input: BuildStlZipInput): Promise<Blob> {
     signal: input.signal,
     extraFiles: input.extraFiles,
     yieldBetweenChunks: true,
+    maskReliefImage: input.maskReliefImage ?? null,
   })
 }
 
@@ -92,9 +94,11 @@ function buildStlZipWithWorker(w: Worker, input: BuildStlZipInput): Promise<Blob
   return new Promise((resolve, reject) => {
     const color = toPayload(input.colorImage)
     const texture = toPayload(input.texturedImage)
+    const maskRelief = toPayload(input.maskReliefImage ?? null)
     const transfer: Transferable[] = []
     if (color) transfer.push(color.buffer)
     if (texture) transfer.push(texture.buffer)
+    if (maskRelief) transfer.push(maskRelief.buffer)
 
     const onMessage = (
       ev: MessageEvent<StlZipWorkerProgress | StlZipWorkerDone | StlZipWorkerError>,
@@ -129,6 +133,7 @@ function buildStlZipWithWorker(w: Worker, input: BuildStlZipInput): Promise<Blob
         genInstruction: input.genInstruction,
         color,
         texture,
+        maskRelief,
         polygons: input.polygons,
         previewColorPng: input.previewColorPng ?? null,
         previewTexturePng: input.previewTexturePng ?? null,

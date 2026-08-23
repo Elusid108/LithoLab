@@ -10,6 +10,7 @@ import {
   DEFAULT_VALUE_PLATE_THICKNESS,
   DEFAULT_VALUE_TEXTURE_MAX_THICKNESS,
   DEFAULT_VALUE_TEXTURE_MIN_THICKNESS,
+  DEFAULT_VALUE_MASK_MAX_THICKNESS,
   PixelCreationMethod,
   type GenInstruction,
 } from './genInstruction'
@@ -17,6 +18,7 @@ import { buildPreviewAndStlImages, type PreviewProgressEvent } from './generator
 import type { StlProgress } from './stl/stlMaker'
 import { Palette } from './palette/palette'
 import {
+  classifyPolygonLoops,
   decimatePolygonSet,
   extractMaskPolygons,
   offsetPolygonSet,
@@ -51,7 +53,9 @@ import {
   loadHtmlImage,
   prepareOutpaintRequest,
 } from './ai/outpaint'
-import { flipImage, imageDataToPngBlob } from './util/imageUtil'
+import { flipImage, imageDataToCanvas, imageDataToPngBlob } from './util/imageUtil'
+import { decodeImportedImage } from './util/imageImport'
+import { postProcessAiMaskBlob } from './util/maskProcess'
 import { buildStlZip } from './workers/stlZipClient'
 import {
   canvasToPngBlob,
@@ -583,6 +587,8 @@ interface MaskLayer {
   trimH: number
   isGenerated: boolean
   objectUrl: string | null
+  /** Trimmed grayscale crop aligned with `polygon` / trimW×trimH. */
+  gray: ImageData | null
 }
 
 interface LayerPose {
@@ -609,9 +615,12 @@ interface GeneratedPreviewData {
   maskPolygonMm: PolygonSet
   /** Silhouette polygon (mask offset by border XY) in mm. Defines the printed outline. */
   silhouettePolygonMm: PolygonSet
+  outerPolygonMm: PolygonSet
+  holePolygonMm: PolygonSet
   /** Binary-clipped rasters for mesh emission (not flipped). */
   stlColorImage: ImageData | null
   stlTextureImage: ImageData | null
+  stlMaskRelief: ImageData | null
   /** Preview PNGs matching the on-screen canvases, packed into the ZIP. */
   previewColorPng: Blob | null
   previewTexturePng: Blob | null
@@ -659,6 +668,8 @@ interface AppState {
   lastGeneratedPhotoName: string | null
   lastGeneratedMaskName: string | null
   aiPromptMode: 'photo' | 'mask'
+  maskAiKind: 'cookiecutter' | 'stencil'
+  maskAiGradient: boolean
   layerCache: Record<string, LayerCacheEntry>
 }
 
@@ -729,6 +740,7 @@ const state: AppState = {
     trimH: 0,
     isGenerated: false,
     objectUrl: null,
+    gray: null,
   },
   pixelData: null,
   prompts: { photo: '', mask: '' },
@@ -736,6 +748,8 @@ const state: AppState = {
   lastGeneratedPhotoName: null,
   lastGeneratedMaskName: null,
   aiPromptMode: 'photo',
+  maskAiKind: 'cookiecutter',
+  maskAiGradient: false,
   layerCache: {},
 }
 
@@ -820,14 +834,14 @@ interface MaskExtraction {
   polygon: PolygonSet
   trimW: number
   trimH: number
+  gray: ImageData | null
 }
 
 /**
  * Extract a smooth vector polygon from the source mask image.
- * The polygon is luminance-thresholded marching-squares output passed through
- * Chaikin smoothing, then translated so its bounding box starts at (0, 0).
- * The returned `trimW`/`trimH` describe the polygon's bounding box in
- * source-image pixel units and serve as the mask layer's "natural" aspect.
+ * Gray (including dark flower texture) stays inside the body; enclosed black
+ * pockets become hole loops. The returned `trimW`/`trimH` describe the
+ * polygon's bounding box in source-image pixel units.
  */
 function extractMaskFromImage(img: HTMLImageElement): MaskExtraction {
   const tempC = document.createElement('canvas')
@@ -846,12 +860,13 @@ function extractMaskFromImage(img: HTMLImageElement): MaskExtraction {
       ],
       trimW: img.width,
       trimH: img.height,
+      gray: null,
     }
   }
   tCtx.drawImage(img, 0, 0)
   const id = tCtx.getImageData(0, 0, tempC.width, tempC.height)
 
-  let polygons = extractMaskPolygons(id, { threshold: 128, smoothIters: 3, minLoopArea: 6 })
+  let polygons = extractMaskPolygons(id, { smoothIters: 3, minLoopArea: 6 })
 
   if (polygons.length === 0) {
     polygons = [
@@ -867,10 +882,23 @@ function extractMaskFromImage(img: HTMLImageElement): MaskExtraction {
   const b = polygonBounds(polygons)
   const trimW = Math.max(1, b.maxX - b.minX)
   const trimH = Math.max(1, b.maxY - b.minY)
+  const tw = Math.max(1, Math.round(trimW))
+  const th = Math.max(1, Math.round(trimH))
+  const crop = document.createElement('canvas')
+  crop.width = tw
+  crop.height = th
+  const cctx = crop.getContext('2d')
+  let gray: ImageData | null = null
+  if (cctx) {
+    cctx.drawImage(img, b.minX, b.minY, trimW, trimH, 0, 0, tw, th)
+    gray = cctx.getImageData(0, 0, tw, th)
+  }
+  const sx = tw / trimW
+  const sy = th / trimH
   const normalized: PolygonSet = polygons.map((loop) =>
-    loop.map((p) => ({ x: p.x - b.minX, y: p.y - b.minY })),
+    loop.map((p) => ({ x: (p.x - b.minX) * sx, y: (p.y - b.minY) * sy })),
   )
-  return { polygon: normalized, trimW, trimH }
+  return { polygon: normalized, trimW: tw, trimH: th, gray }
 }
 
 function revokeLayerObjectUrl(layer: { objectUrl: string | null }): void {
@@ -922,6 +950,7 @@ function handleImageLoad(
     layer.polygon = extracted.polygon
     layer.trimW = extracted.trimW
     layer.trimH = extracted.trimH
+    layer.gray = extracted.gray
     layer.aspect = extracted.trimW / extracted.trimH
 
     const key = cacheKeyFromSrc(img.src)
@@ -1156,12 +1185,17 @@ function restoreHistoryEntry(type: ActiveLayer, entry: LayerHistoryEntry): void 
     if (type === 'photo') state.lastGeneratedPhotoName = entry.suggestedSlug
     else state.lastGeneratedMaskName = entry.suggestedSlug
   }
-  const url = URL.createObjectURL(entry.blob)
-  const img = new Image()
-  img.onload = () =>
-    handleImageLoad(img, type, null, entry.source === 'ai', { objectUrl: url })
-  img.onerror = () => URL.revokeObjectURL(url)
-  img.src = url
+  void (async () => {
+    try {
+      const decoded = await decodeImportedImage(entry.blob, type)
+      handleImageLoad(decoded.img, type, null, entry.source === 'ai', {
+        objectUrl: decoded.objectUrl,
+      })
+    } catch (e) {
+      console.error(e)
+      void window.alert(e instanceof Error ? e.message : String(e))
+    }
+  })()
 }
 
 function loadLayer(e: Event, type: ActiveLayer): void {
@@ -1170,12 +1204,20 @@ function loadLayer(e: Event, type: ActiveLayer): void {
   if (!file) return
   if (type === 'photo') clearOutpaintSource()
   const suggested = file.name.replace(/\.[^.]+$/, '') || null
-  addToHistory(file, type, { source: 'upload', suggestedSlug: suggested })
-  const url = URL.createObjectURL(file)
-  const img = new Image()
-  img.onload = () => handleImageLoad(img, type, null, false, { objectUrl: url })
-  img.onerror = () => URL.revokeObjectURL(url)
-  img.src = url
+  void (async () => {
+    try {
+      const decoded = await decodeImportedImage(file, type, file.name)
+      addToHistory(decoded.blob, type, { source: 'upload', suggestedSlug: suggested })
+      handleImageLoad(decoded.img, type, null, false, { objectUrl: decoded.objectUrl })
+    } catch (err) {
+      console.error(err)
+      void window.alert(
+        err instanceof Error ? err.message : `Could not decode that ${type} image.`,
+      )
+    } finally {
+      input.value = ''
+    }
+  })()
 }
 
 function selectLayer(layer: ActiveLayer): void {
@@ -1463,6 +1505,9 @@ interface RectifiedScene {
   heightMm: number
   maskPolygonMm: PolygonSet
   silhouettePolygonMm: PolygonSet
+  outerPolygonMm: PolygonSet
+  holePolygonMm: PolygonSet
+  maskGray: HTMLCanvasElement | null
 }
 
 function buildRectifiedScene(): RectifiedScene | null {
@@ -1498,16 +1543,22 @@ function buildRectifiedScene(): RectifiedScene | null {
 
   maskInitial = decimatePolygonSet(maskInitial, STL_POLYGON_MAX_VERTS)
 
-  // 2. Silhouette = mask polygon offset outward by borderXY (high-res offset for smooth STL/preview edges).
+  const classified = classifyPolygonLoops(maskInitial)
+  const outerInitial =
+    classified.outers.length > 0 ? classified.outers : maskInitial
+  const holeInitial = classified.holes
+
+  // 2. Silhouette = outer loops offset by borderXY so hole interiors stay inside
+  // the expanded outline and can be filled with border material.
   let silhouetteRaw =
     borderXY > 0
-      ? offsetPolygonSet(maskInitial, borderXY, {
+      ? offsetPolygonSet(outerInitial, borderXY, {
           maxGrid: 2048,
           smoothIters: 4,
           cellSize: Math.max(borderXY / 12, 1e-6),
         })
-      : maskInitial
-  if (silhouetteRaw.length === 0) silhouetteRaw = maskInitial
+      : outerInitial
+  if (silhouetteRaw.length === 0) silhouetteRaw = outerInitial
   silhouetteRaw = decimatePolygonSet(silhouetteRaw, STL_POLYGON_MAX_VERTS)
 
   // 3. Shift both polygons so silhouette top-left lands at (0, 0).
@@ -1516,6 +1567,8 @@ function buildRectifiedScene(): RectifiedScene | null {
   const shiftY = -sBounds.minY
   const maskPolygonMm = shiftPolygonSet(maskInitial, shiftX, shiftY)
   const silhouettePolygonMm = shiftPolygonSet(silhouetteRaw, shiftX, shiftY)
+  const outerPolygonMm = shiftPolygonSet(outerInitial, shiftX, shiftY)
+  const holePolygonMm = shiftPolygonSet(holeInitial, shiftX, shiftY)
   const compositeWidthMm = Math.max(0.001, sBounds.maxX - sBounds.minX)
   const compositeHeightMm = Math.max(0.001, sBounds.maxY - sBounds.minY)
 
@@ -1580,12 +1633,47 @@ function buildRectifiedScene(): RectifiedScene | null {
   ctx.drawImage(state.photo.img, 0, 0)
   ctx.restore()
 
+  let maskGray: HTMLCanvasElement | null = null
+  if (state.mask.loaded && state.mask.gray && state.mask.trimW > 0 && state.mask.trimH > 0) {
+    maskGray = document.createElement('canvas')
+    maskGray.width = W
+    maskGray.height = H
+    const gctx = maskGray.getContext('2d')
+    if (gctx) {
+      gctx.imageSmoothingEnabled = true
+      gctx.setTransform(W / compositeWidthMm, 0, 0, H / compositeHeightMm, 0, 0)
+      gctx.save()
+      gctx.clip(polygonSetToPath2D(maskPolygonMm), 'evenodd')
+      const maskSrcToMm: Affine = {
+        a: destW / state.mask.trimW,
+        b: 0,
+        c: 0,
+        d: destH / state.mask.trimH,
+        tx: shiftX,
+        ty: shiftY,
+      }
+      gctx.transform(
+        maskSrcToMm.a,
+        maskSrcToMm.b,
+        maskSrcToMm.c,
+        maskSrcToMm.d,
+        maskSrcToMm.tx,
+        maskSrcToMm.ty,
+      )
+      gctx.drawImage(imageDataToCanvas(state.mask.gray), 0, 0)
+      gctx.restore()
+    }
+  }
+
   return {
     composite,
     widthMm: compositeWidthMm,
     heightMm: compositeHeightMm,
     maskPolygonMm,
     silhouettePolygonMm,
+    outerPolygonMm,
+    holePolygonMm,
+    maskGray,
   }
 }
 
@@ -1690,10 +1778,16 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
   try {
     both = await buildPreviewAndStlImages(
       scene.composite,
-      { maskPolygonMm: scene.maskPolygonMm, silhouettePolygonMm: scene.silhouettePolygonMm },
+      {
+        maskPolygonMm: scene.maskPolygonMm,
+        silhouettePolygonMm: scene.silhouettePolygonMm,
+        outerPolygonMm: scene.outerPolygonMm,
+        holePolygonMm: scene.holePolygonMm,
+      },
       palette,
       gen,
       mapPreviewProgress,
+      scene.maskGray,
     )
   } catch (e) {
     ui.hide()
@@ -1728,8 +1822,11 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
     heightMm: scene.heightMm,
     maskPolygonMm: scene.maskPolygonMm,
     silhouettePolygonMm: scene.silhouettePolygonMm,
+    outerPolygonMm: scene.outerPolygonMm,
+    holePolygonMm: scene.holePolygonMm,
     stlColorImage: both.stl.colorImage,
     stlTextureImage: both.stl.textureImage,
+    stlMaskRelief: both.stl.maskReliefImage,
     previewColorPng,
     previewTexturePng,
   }
@@ -1823,6 +1920,7 @@ function buildGenInstructionFromState(): GenInstruction {
   g.borderOverlapMm = state.export.borderOverlapMm
   g.textureMinThickness = readInputFloat('inpMinThickness', DEFAULT_VALUE_TEXTURE_MIN_THICKNESS)
   g.textureMaxThickness = readInputFloat('inpMaxThickness', DEFAULT_VALUE_TEXTURE_MAX_THICKNESS)
+  g.maskMaxThickness = readInputFloat('inpMaskMaxThickness', DEFAULT_VALUE_MASK_MAX_THICKNESS)
 
   const modeSel = $('selPixelMode') as HTMLSelectElement | null
   g.pixelCreationMethod =
@@ -1950,6 +2048,7 @@ function clearLayer(type: ActiveLayer): void {
       trimH: 0,
       isGenerated: false,
       objectUrl: null,
+      gray: null,
     }
     const maskInput = $('maskInput') as HTMLInputElement | null
     if (maskInput) maskInput.value = ''
@@ -2036,14 +2135,76 @@ function downloadSource(type: ActiveLayer): void {
   })()
 }
 
+function readMaskAiKind(): 'cookiecutter' | 'stencil' {
+  const checked = document.querySelector(
+    'input[name="aiMaskKind"]:checked',
+  ) as HTMLInputElement | null
+  return checked?.value === 'stencil' ? 'stencil' : 'cookiecutter'
+}
+
+function readMaskAiGradient(): boolean {
+  const el = $('aiMaskGradient') as HTMLInputElement | null
+  return Boolean(el?.checked)
+}
+
+function maskTypeHelpText(kind: 'cookiecutter' | 'stencil', gradient: boolean): string {
+  if (kind === 'cookiecutter' && !gradient) {
+    return 'Solid fill with a hard outline. No interior holes and no grayscale.'
+  }
+  if (kind === 'cookiecutter' && gradient) {
+    return 'Solid outer shape with no holes. Grayscale texture is allowed inside the fill.'
+  }
+  if (kind === 'stencil' && !gradient) {
+    return 'Hard black-and-white stencil. Interior holes (like the counter in “A”) are allowed.'
+  }
+  return 'Stencil with interior holes. Grayscale texture is allowed in the filled regions; holes stay black.'
+}
+
+function syncMaskTypeHelp(): void {
+  const kind = readMaskAiKind()
+  const gradient = readMaskAiGradient()
+  state.maskAiKind = kind
+  state.maskAiGradient = gradient
+  const help = $('aiMaskTypeHelp')
+  if (help) help.textContent = maskTypeHelpText(kind, gradient)
+}
+
 function buildMaskAiPrompt(subject: string): string {
   const s = subject.trim()
+  const kind = state.maskAiKind
+  const gradient = state.maskAiGradient
+  if (kind === 'cookiecutter' && !gradient) {
+    return (
+      `A high-contrast, polarized image mask featuring a perfectly solid, continuous white silhouette of ${s}. ` +
+      `This entire silhouette is one unbroken, unblemished white shape with no internal features, holes, ` +
+      `facial details, cutouts, or floating shapes inside. The outer outline is crisp and smooth. ` +
+      `The entire form is seamlessly filled with solid white, set against a pure black background. ` +
+      `No grayscale, no shading, no texture, no gradients. Flat vector-style cookie cutter.`
+    )
+  }
+  if (kind === 'cookiecutter' && gradient) {
+    return (
+      `A high-contrast image mask of ${s}. The outer silhouette is a single solid shape with a crisp hard ` +
+      `outline and NO interior holes, cutouts, or floating pieces. Background is pure black. ` +
+      `Inside the filled shape, grayscale texture and gradients ARE allowed (for example a floral pattern ` +
+      `in gray on the white body). Darker gray means raised relief. White means no extra relief. ` +
+      `Do not punch holes with the texture. The outer edge stays hard against black.`
+    )
+  }
+  if (kind === 'stencil' && !gradient) {
+    return (
+      `A high-contrast black-and-white stencil mask of ${s}. Filled regions are solid white with hard edges. ` +
+      `Interior holes and counters ARE allowed (for example the triangular hole in the letter A). ` +
+      `Holes and the background are pure black. No grayscale, no shading, no gradients. ` +
+      `Do not add spraypaint stencil bridges, tabs, or connectors.`
+    )
+  }
   return (
-    `A high-contrast, polarized image mask featuring a perfectly solid, continuous white silhouette of ${s}. ` +
-    `This entire silhouette is one unbroken, unblemished white shape with no internal features, holes, ` +
-    `facial details, cutouts, or floating shapes inside. The outer outline is crisp and smooth. ` +
-    `The entire form is seamlessly filled with solid white, set against a pure black background. ` +
-    `No grayscale, no shading, no texture, no gradients. Flat vector-style stencil.`
+    `A high-contrast stencil mask of ${s}. Interior holes and counters ARE allowed (for example the hole ` +
+    `in the letter A) and those holes stay pure black, same as the background. Filled strokes may contain ` +
+    `grayscale texture and gradients (for example a floral pattern across the letter). Darker gray means ` +
+    `raised relief; white means no extra relief. Hard outer edges. ` +
+    `Do not add spraypaint stencil bridges, tabs, or connectors.`
   )
 }
 
@@ -2116,11 +2277,26 @@ function openAiPrompt(mode: string): void {
 
   if (mode === 'mask') {
     if (title) title.textContent = '✨ Generate Mask Shape'
+    const kindSection = $('aiMaskTypeSection')
+    if (kindSection) kindSection.hidden = false
+    const cookie = document.querySelector(
+      'input[name="aiMaskKind"][value="cookiecutter"]',
+    ) as HTMLInputElement | null
+    const stencil = document.querySelector(
+      'input[name="aiMaskKind"][value="stencil"]',
+    ) as HTMLInputElement | null
+    if (cookie) cookie.checked = state.maskAiKind !== 'stencil'
+    if (stencil) stencil.checked = state.maskAiKind === 'stencil'
+    const grad = $('aiMaskGradient') as HTMLInputElement | null
+    if (grad) grad.checked = state.maskAiGradient
+    syncMaskTypeHelp()
     if (desc)
       desc.textContent =
-        'Describe the outer shape only (e.g. "bear\'s head and ears", "heart", "star"). The AI will generate a solid B&W mask with no interior cutouts.'
-    input.placeholder = "E.g., a bear's head and ears"
+        'Describe the shape (e.g. "letter A with a flower pattern"). Generation type controls holes and grayscale.'
+    input.placeholder = "E.g., letter A with a flower pattern"
   } else {
+    const kindSection = $('aiMaskTypeSection')
+    if (kindSection) kindSection.hidden = true
     if (title) title.textContent = '✨ Generate Photo'
     if (desc) desc.textContent = 'Describe the full color image you want to print.'
     input.placeholder = 'E.g., A cyberpunk city at sunset...'
@@ -2287,6 +2463,7 @@ async function confirmGenerateImage(): Promise<void> {
   state.prompts[mode] = prompt
   if (mode === 'photo') clearOutpaintSource()
   if (aiOverlay) aiOverlay.style.display = 'none'
+  if (mode === 'mask') syncMaskTypeHelp()
 
   ui.show()
   ui.update(50, `Creating ${mode}...`, 'This may take a few seconds')
@@ -2295,7 +2472,13 @@ async function confirmGenerateImage(): Promise<void> {
 
   try {
     const generated = await requestGeneratedImage({ prompt: finalPrompt })
-    const blob = blobFromBase64(generated.base64, generated.mime)
+    let blob = blobFromBase64(generated.base64, generated.mime)
+    if (mode === 'mask') {
+      blob = await postProcessAiMaskBlob(blob, {
+        fillHoles: state.maskAiKind === 'cookiecutter',
+        forceBinary: !state.maskAiGradient,
+      })
+    }
     applyGeneratedLayerBlob(blob, mode, prompt, generated.base64, generated.mime)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -2510,6 +2693,7 @@ async function collectPackInput(): Promise<PackProjectInput> {
       maxColors: Math.max(0, readInputInt('inpMaxColors', 0)),
       minThickness: readInputFloat('inpMinThickness', DEFAULT_VALUE_TEXTURE_MIN_THICKNESS),
       maxThickness: readInputFloat('inpMaxThickness', DEFAULT_VALUE_TEXTURE_MAX_THICKNESS),
+      maskMaxThickness: readInputFloat('inpMaskMaxThickness', DEFAULT_VALUE_MASK_MAX_THICKNESS),
     },
     palette: currentPaletteJson,
     photo,
@@ -2527,22 +2711,12 @@ function loadBlobAsLayer(
   pose: LayerPose | undefined,
   isGenerated: boolean,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    img.onload = () => {
-      handleImageLoad(img, type, null, isGenerated, {
-        pose,
-        resetExportDims: false,
-        objectUrl: url,
-      })
-      resolve()
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error('Failed to decode image'))
-    }
-    img.src = url
+  return decodeImportedImage(blob, type).then((decoded) => {
+    handleImageLoad(decoded.img, type, null, isGenerated, {
+      pose,
+      resetExportDims: false,
+      objectUrl: decoded.objectUrl,
+    })
   })
 }
 
@@ -2581,6 +2755,9 @@ async function applyUnpackedProject(unpacked: UnpackedProject): Promise<void> {
     setInputValue('inpMaxColors', g.maxColors)
     setInputValue('inpMinThickness', g.minThickness)
     setInputValue('inpMaxThickness', g.maxThickness)
+    if (g.maskMaxThickness != null) {
+      setInputValue('inpMaskMaxThickness', g.maskMaxThickness)
+    }
     const modeSel = $('selPixelMode') as HTMLSelectElement | null
     if (modeSel && g.pixelMode) modeSel.value = g.pixelMode
     const distSel = $('selColorDistance') as HTMLSelectElement | null
@@ -2662,10 +2839,18 @@ function renderDefaultMasks(): void {
 
 function loadPresetMask(filename: string): void {
   const url = defaultMaskUrl(filename)
-  const img = new Image()
-  img.onload = () => handleImageLoad(img, 'mask', null, false)
-  img.onerror = () => void window.alert(`Could not load preset mask (${filename}).`)
-  img.src = url
+  void (async () => {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Could not load preset mask (${filename}).`)
+      const blob = await res.blob()
+      const decoded = await decodeImportedImage(blob, 'mask', filename)
+      handleImageLoad(decoded.img, 'mask', null, false, { objectUrl: decoded.objectUrl })
+    } catch (e) {
+      console.error(e)
+      void window.alert(e instanceof Error ? e.message : `Could not load preset mask (${filename}).`)
+    }
+  })()
 }
 
 let libraryThumbUrls: string[] = []
@@ -2843,10 +3028,15 @@ async function exportDownload(): Promise<void> {
       polygons: {
         maskPolygonMm: state.pixelData.maskPolygonMm,
         silhouettePolygonMm: state.pixelData.silhouettePolygonMm,
+        outerPolygonMm: state.pixelData.outerPolygonMm,
+        holePolygonMm: state.pixelData.holePolygonMm,
       },
       extraFiles,
       previewColorPng: state.pixelData.previewColorPng,
       previewTexturePng: state.pixelData.previewTexturePng,
+      maskReliefImage: state.pixelData.stlMaskRelief
+        ? flipImage(state.pixelData.stlMaskRelief)
+        : null,
       onProgress: mapExportStlProgress,
     })
     downloadBlob(zipBlob, `${base}.zip`)
@@ -3001,6 +3191,12 @@ function init(): void {
   if (photoInput) photoInput.addEventListener('change', (e) => loadLayer(e, 'photo'))
   if (maskInput) maskInput.addEventListener('change', (e) => loadLayer(e, 'mask'))
 
+  document.querySelectorAll('input[name="aiMaskKind"]').forEach((el) => {
+    el.addEventListener('change', () => syncMaskTypeHelp())
+  })
+  const gradCb = $('aiMaskGradient')
+  if (gradCb) gradCb.addEventListener('change', () => syncMaskTypeHelp())
+
   const projectImport = $('projectImportInput') as HTMLInputElement | null
   if (projectImport) {
     projectImport.addEventListener('change', (e) => {
@@ -3037,6 +3233,7 @@ function init(): void {
     selectLayer,
     openAiPrompt,
     confirmGenerateImage,
+    syncMaskTypeHelp,
     updateDims,
     updateUnitDisplay,
     onBorderWidthChange,

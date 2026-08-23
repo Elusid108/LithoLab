@@ -31,6 +31,7 @@ export interface ProjectGenerationSettings {
   maxColors: number
   minThickness: number
   maxThickness: number
+  maskMaxThickness?: number
 }
 
 export interface ProjectJsonV1 {

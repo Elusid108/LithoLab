@@ -26,6 +26,26 @@
         <p style="font-size: 12px; color: #aaa; margin-bottom: 15px" id="aiModalDesc">Describe the image you want to create.</p>
         <textarea id="aiPromptInput" placeholder="E.g., A cute cat..."></textarea>
         <input type="hidden" id="aiMode" value="photo" />
+        <div id="aiMaskTypeSection" class="ai-mask-type-section" hidden>
+          <p class="ai-mask-type-label">Generation type</p>
+          <div class="ai-mask-kind-row" role="radiogroup" aria-label="Mask generation type">
+            <label class="ai-seg">
+              <input type="radio" name="aiMaskKind" value="cookiecutter" checked />
+              <span>Cookiecutter</span>
+            </label>
+            <label class="ai-seg">
+              <input type="radio" name="aiMaskKind" value="stencil" />
+              <span>Stencil</span>
+            </label>
+          </div>
+          <label class="ai-mask-gradient">
+            <input type="checkbox" id="aiMaskGradient" />
+            Gradient
+          </label>
+          <p id="aiMaskTypeHelp" class="ai-extend-help">
+            Solid fill with a hard outline. No interior holes.
+          </p>
+        </div>
         <div class="modal-btns">
           <button class="cancel-btn" onclick="document.getElementById('aiPromptOverlay').style.display='none'">Cancel</button>
           <button class="ai-btn" onclick="confirmGenerateImage()">Generate ✨</button>
@@ -232,7 +252,7 @@
                   title="Generate with AI"
                   aria-label="Generate with AI"
                 >✨</button>
-                <input type="file" id="photoInput" accept="image/*" />
+                <input type="file" id="photoInput" accept="image/*,image/heic,image/heif,.heic,.heif" />
                 <button id="dl-photo" class="dl-btn" onclick="downloadSource('photo')" title="Download Generated Image">⬇️</button>
               </div>
               <div id="activeGeneratedPhotoContainer" style="display: none; margin-top: 8px">
@@ -275,7 +295,7 @@
                   title="Generate Mask AI"
                   aria-label="Generate Mask AI"
                 >✨</button>
-                <input type="file" id="maskInput" accept="image/*" />
+                <input type="file" id="maskInput" accept="image/*,image/heic,image/heif,.heic,.heif" />
                 <button id="dl-mask" class="dl-btn" onclick="downloadSource('mask')" title="Download Generated Mask">⬇️</button>
               </div>
               <div id="activeGeneratedMaskContainer" style="display: none; margin-top: 8px">
@@ -295,6 +315,15 @@
                 <div id="maskHistory" class="history-strip"></div>
                 <button type="button" class="strip-arrow" data-dir="1" aria-label="Scroll right">›</button>
               </div>
+              <div class="dim-row" style="margin-top: 10px">
+                <div class="dim-group">
+                  <span class="dim-label">Gradient max thickness (mm)</span>
+                  <input type="number" id="inpMaskMaxThickness" class="dim-input" step="0.01" min="0" value="0.4" />
+                </div>
+              </div>
+              <p style="font-size: 11px; color: #888; margin: 4px 0 0 0">
+                Extra height for grayscale in the mask. Photo min/max thickness are unchanged.
+              </p>
             </div>
           </div>
         </div>
