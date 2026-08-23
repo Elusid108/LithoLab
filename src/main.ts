@@ -44,27 +44,13 @@ import {
   triggerPaletteImport,
   type PaletteJson,
 } from './palette/paletteManager'
-import {
-  applyRouterProfile,
-  cancelRouterModal,
-  clearRouterDrawing,
-  closeRouterModal,
-  initRouterManager,
-  openRouterModal,
-  refreshRouterCanvasIfOpen,
-  resetRouterToPreset,
-  setRouterTool,
-  setRouterCircleMode,
-  setRouterLineKeep,
-  undoRouterOp,
-  updateRouterButtonState,
-} from './border/routerManager'
-import {
-  loadStoredBorderProfile,
-  saveBorderProfile,
-  type BorderProfile,
-} from './border/routerPresets'
 import { DEFAULT_MASKS, defaultMaskUrl } from './data/defaultMasks'
+import {
+  buildOutpaintPrompt,
+  compositeOutpaintResult,
+  loadHtmlImage,
+  prepareOutpaintRequest,
+} from './ai/outpaint'
 import { flipImage, imageDataToPngBlob } from './util/imageUtil'
 import { buildStlZip } from './workers/stlZipClient'
 import {
@@ -186,24 +172,6 @@ function initPalette(): void {
     },
   })
   refreshInlinePalette()
-}
-
-function initRouter(): void {
-  initRouterManager({
-    getBorderDims: () => ({
-      widthMm: state.export.border,
-      heightMm: state.export.borderHeightMm,
-    }),
-    getProfile: () => state.export.borderProfile,
-    setProfile: (profile) => {
-      state.export.borderProfile = profile
-      saveBorderProfile(profile)
-    },
-    onChange: () => {
-      updateRouterButtonState()
-    },
-  })
-  updateRouterButtonState()
 }
 
 // --- CONFIGURATION (LithoLab script.js) ---
@@ -682,7 +650,6 @@ interface AppState {
     pixelSizeMm: number
     borderHeightMm: number
     borderOverlapMm: number
-    borderProfile: BorderProfile | null
   }
   photo: PhotoLayer
   mask: MaskLayer
@@ -736,7 +703,6 @@ const state: AppState = {
     pixelSizeMm: 0.2,
     borderHeightMm: DEFAULT_VALUE_BORDER_HEIGHT_MM,
     borderOverlapMm: DEFAULT_VALUE_BORDER_OVERLAP_MM,
-    borderProfile: loadStoredBorderProfile(),
   },
   photo: {
     img: null,
@@ -1185,6 +1151,7 @@ function removeHistoryEntry(type: ActiveLayer, id: string): void {
 }
 
 function restoreHistoryEntry(type: ActiveLayer, entry: LayerHistoryEntry): void {
+  if (type === 'photo') clearOutpaintSource()
   if (entry.source === 'ai') {
     if (type === 'photo') state.lastGeneratedPhotoName = entry.suggestedSlug
     else state.lastGeneratedMaskName = entry.suggestedSlug
@@ -1201,6 +1168,7 @@ function loadLayer(e: Event, type: ActiveLayer): void {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  if (type === 'photo') clearOutpaintSource()
   const suggested = file.name.replace(/\.[^.]+$/, '') || null
   addToHistory(file, type, { source: 'upload', suggestedSlug: suggested })
   const url = URL.createObjectURL(file)
@@ -1798,15 +1766,11 @@ function syncExportSettingsFromInputs(): void {
 function onBorderWidthChange(): void {
   syncExportSettingsFromInputs()
   updateExportGridReadout()
-  updateRouterButtonState()
-  refreshRouterCanvasIfOpen()
   invalidatePreviews()
 }
 
 function onBorderHeightChange(): void {
   syncExportSettingsFromInputs()
-  updateRouterButtonState()
-  refreshRouterCanvasIfOpen()
 }
 
 function onBorderOverlapChange(): void {
@@ -1857,7 +1821,6 @@ function buildGenInstructionFromState(): GenInstruction {
   g.colorNumber = Math.max(0, readInputInt('inpMaxColors', 0))
   g.borderHeightMm = state.export.borderHeightMm
   g.borderOverlapMm = state.export.borderOverlapMm
-  g.borderProfile = state.export.borderProfile
   g.textureMinThickness = readInputFloat('inpMinThickness', DEFAULT_VALUE_TEXTURE_MIN_THICKNESS)
   g.textureMaxThickness = readInputFloat('inpMaxThickness', DEFAULT_VALUE_TEXTURE_MAX_THICKNESS)
 
@@ -1952,6 +1915,7 @@ function saveSettings(): void {
 
 function clearLayer(type: ActiveLayer): void {
   if (type === 'photo') {
+    clearOutpaintSource()
     revokeLayerObjectUrl(state.photo)
     state.photo = {
       img: null,
@@ -2083,6 +2047,59 @@ function buildMaskAiPrompt(subject: string): string {
   )
 }
 
+interface OutpaintSource {
+  img: HTMLImageElement
+  objectUrl: string
+}
+
+let outpaintSource: OutpaintSource | null = null
+
+function clearOutpaintSource(): void {
+  if (outpaintSource?.objectUrl) URL.revokeObjectURL(outpaintSource.objectUrl)
+  outpaintSource = null
+  const regen = $('btnRegenerateExtend') as HTMLButtonElement | null
+  if (regen) regen.disabled = true
+}
+
+function syncPhotoExtendUi(): void {
+  const section = $('aiPhotoExtendSection')
+  const extendBtn = $('btnExtendEdges') as HTMLButtonElement | null
+  const regenBtn = $('btnRegenerateExtend') as HTMLButtonElement | null
+  if (!section || !extendBtn || !regenBtn) return
+  const isPhoto = state.aiPromptMode === 'photo'
+  section.hidden = !isPhoto
+  const hasPhoto = Boolean(state.photo.loaded && state.photo.img)
+  extendBtn.disabled = !hasPhoto
+  extendBtn.title = hasPhoto
+    ? 'Fill in matching background around the current photo'
+    : 'Load a photo first'
+  regenBtn.disabled = !outpaintSource
+  regenBtn.title = outpaintSource
+    ? 'Try another fill around the same source photo'
+    : 'Extend edges first'
+}
+
+async function snapshotPhotoForOutpaint(img: HTMLImageElement): Promise<void> {
+  const w = Math.max(1, img.naturalWidth || img.width)
+  const h = Math.max(1, img.naturalHeight || img.height)
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas unavailable')
+  ctx.drawImage(img, 0, 0)
+  const blob = await canvasToPngBlob(canvas)
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const clone = await loadHtmlImage(objectUrl)
+    if (outpaintSource?.objectUrl) URL.revokeObjectURL(outpaintSource.objectUrl)
+    outpaintSource = { img: clone, objectUrl }
+  } catch (err) {
+    URL.revokeObjectURL(objectUrl)
+    throw err
+  }
+}
+
 function openAiPrompt(mode: string): void {
   const overlay = $('aiPromptOverlay') as HTMLElement | null
   const modeInput = $('aiMode') as HTMLInputElement | null
@@ -2108,6 +2125,149 @@ function openAiPrompt(mode: string): void {
     if (desc) desc.textContent = 'Describe the full color image you want to print.'
     input.placeholder = 'E.g., A cyberpunk city at sunset...'
   }
+  syncPhotoExtendUi()
+}
+
+interface GeneratedImageResult {
+  base64: string
+  mime: string
+}
+
+async function requestGeneratedImage(opts: {
+  prompt: string
+  inlineImage?: { data: string; mime: string }
+  aspectRatio?: string
+}): Promise<GeneratedImageResult> {
+  const imageOpt = getSelectedImageModelOption()
+  if (!state.selectedImageModel || !imageOpt) {
+    throw new Error(
+      'No image model selected or models not loaded. Open Settings, add your API key, and tap Refresh Models.',
+    )
+  }
+
+  const modelId = state.selectedImageModel
+  const imageEndpoint = imageOpt.imageEndpoint
+
+  if (opts.inlineImage && imageEndpoint !== 'generateContent') {
+    throw new Error(
+      'Extend edges needs a Gemini image model (for example Nano Banana). Open Settings and pick an image model that can edit photos.',
+    )
+  }
+
+  if (imageEndpoint === 'generateContent') {
+    const parts: Array<Record<string, unknown>> = []
+    if (opts.inlineImage) {
+      parts.push({
+        inlineData: { mimeType: opts.inlineImage.mime, data: opts.inlineImage.data },
+      })
+    }
+    parts.push({ text: opts.prompt })
+
+    const generationConfig: Record<string, unknown> = { responseModalities: ['IMAGE'] }
+    if (opts.aspectRatio) {
+      generationConfig.imageConfig = { aspectRatio: opts.aspectRatio }
+    }
+
+    const url = googleModelEndpointUrl(modelId, state.apiKey, 'generateContent')
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig,
+      }),
+    })
+
+    const data = (await response.json()) as {
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{
+            inlineData?: { mimeType?: string; data?: string }
+          }>
+        }
+      }>
+      error?: { message?: string }
+    }
+
+    if (!response.ok) throw new Error(parseApiError(data, response.statusText))
+    if (data.error?.message) throw new Error(data.error.message)
+
+    const outParts = data.candidates?.[0]?.content?.parts
+    const imagePart = outParts?.find(
+      (p) => p.inlineData?.data && (p.inlineData.mimeType ?? '').startsWith('image/'),
+    )
+    const base64 = imagePart?.inlineData?.data
+    if (!base64) throw new Error(parseApiError(data, 'No image returned'))
+    const mt = imagePart?.inlineData?.mimeType
+    return {
+      base64,
+      mime: mt && mt.startsWith('image/') ? mt : 'image/png',
+    }
+  }
+
+  const url = googleModelEndpointUrl(modelId, state.apiKey, 'predict')
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      instances: [{ prompt: opts.prompt }],
+      parameters: { sampleCount: 1 },
+    }),
+  })
+
+  const data = (await response.json()) as {
+    predictions?: { bytesBase64Encoded?: string }[]
+    error?: { message?: string }
+  }
+
+  if (!response.ok) throw new Error(parseApiError(data, response.statusText))
+  if (data.error?.message) throw new Error(data.error.message)
+  const base64 = data.predictions?.[0]?.bytesBase64Encoded
+  if (!base64) throw new Error(parseApiError(data, 'No image returned'))
+  return { base64, mime: 'image/png' }
+}
+
+function applyGeneratedLayerBlob(
+  blob: Blob,
+  mode: ActiveLayer,
+  prompt: string | null,
+  nameBase64: string,
+  nameMime: string,
+): void {
+  const histId = addToHistory(blob, mode, { source: 'ai' })
+
+  void (async () => {
+    try {
+      const key = state.apiKey.trim()
+      if (!key) return
+      const slug = await autoNameImage(key, nameBase64, nameMime)
+      if (mode === 'photo') {
+        state.lastGeneratedPhotoName = slug
+        const el = $('generatedPhotoNameDisplay')
+        if (el) el.textContent = `${slug}.jpg`
+      } else {
+        state.lastGeneratedMaskName = slug
+        const el = $('generatedMaskNameDisplay')
+        if (el) el.textContent = `${slug}.png`
+      }
+      patchHistorySuggestedSlug(mode, histId, slug)
+    } catch (e) {
+      console.error('Auto-naming generated asset failed:', e)
+    }
+  })()
+
+  const url = URL.createObjectURL(blob)
+  const img = new Image()
+  img.onload = () => {
+    handleImageLoad(img, mode, prompt, true, { objectUrl: url })
+    ui.hide()
+  }
+  img.onerror = () => {
+    URL.revokeObjectURL(url)
+    void window.alert('Failed to decode generated image.')
+    ui.hide()
+  }
+  img.src = url
 }
 
 async function confirmGenerateImage(): Promise<void> {
@@ -2121,158 +2281,91 @@ async function confirmGenerateImage(): Promise<void> {
   if (!prompt) return
 
   state.prompts[mode] = prompt
+  if (mode === 'photo') clearOutpaintSource()
   if (aiOverlay) aiOverlay.style.display = 'none'
 
   ui.show()
   ui.update(50, `Creating ${mode}...`, 'This may take a few seconds')
 
-  let finalPrompt = prompt
-  if (mode === 'mask') {
-    finalPrompt = buildMaskAiPrompt(prompt)
+  const finalPrompt = mode === 'mask' ? buildMaskAiPrompt(prompt) : prompt
+
+  try {
+    const generated = await requestGeneratedImage({ prompt: finalPrompt })
+    const blob = blobFromBase64(generated.base64, generated.mime)
+    applyGeneratedLayerBlob(blob, mode, prompt, generated.base64, generated.mime)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    ui.update(0, 'Generation failed', msg)
+    void window.alert(`AI generation failed: ${msg}`)
+    ui.hide()
+  }
+}
+
+async function runPhotoExtend(regenerate: boolean): Promise<void> {
+  const input = $('aiPromptInput') as HTMLTextAreaElement | null
+  const extra = input?.value ?? ''
+  state.prompts.photo = extra.trim()
+
+  if (!regenerate) {
+    if (!state.photo.loaded || !state.photo.img) {
+      void window.alert('Load a photo first.')
+      return
+    }
+  } else if (!outpaintSource) {
+    void window.alert('Extend edges first, then regenerate for another attempt.')
+    return
   }
 
   const imageOpt = getSelectedImageModelOption()
-  if (!state.selectedImageModel || !imageOpt) {
-    ui.hide()
+  if (!imageOpt || imageOpt.imageEndpoint !== 'generateContent') {
     void window.alert(
-      'No image model selected or models not loaded. Open Settings, add your API key, and tap Refresh Models.',
+      'Extend edges needs a Gemini image model (for example Nano Banana). Open Settings and pick an image model that can edit photos.',
     )
     return
   }
 
-  const modelId = state.selectedImageModel
-  const imageEndpoint = imageOpt.imageEndpoint
+  const aiOverlay = $('aiPromptOverlay') as HTMLElement | null
+  if (aiOverlay) aiOverlay.style.display = 'none'
+
+  ui.show()
+  ui.update(30, regenerate ? 'Trying another extend...' : 'Extending photo...', 'Filling in the area around your image')
 
   try {
-    let base64: string | undefined
-    let imageMime = 'image/png'
-
-    if (imageEndpoint === 'generateContent') {
-      const url = googleModelEndpointUrl(modelId, state.apiKey, 'generateContent')
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
-          generationConfig: { responseModalities: ['IMAGE'] },
-        }),
-      })
-
-      const data = (await response.json()) as {
-        candidates?: Array<{
-          content?: {
-            parts?: Array<{
-              inlineData?: { mimeType?: string; data?: string }
-            }>
-          }
-        }>
-        error?: { message?: string }
-      }
-
-      if (!response.ok) {
-        const msg = parseApiError(data, response.statusText)
-        ui.update(0, 'Generation failed', msg)
-        void window.alert(`AI generation failed: ${msg}`)
-        ui.hide()
-        return
-      }
-
-      if (data.error?.message) {
-        const msg = data.error.message
-        ui.update(0, 'Generation failed', msg)
-        void window.alert(`AI generation failed: ${msg}`)
-        ui.hide()
-        return
-      }
-
-      const parts = data.candidates?.[0]?.content?.parts
-      const imagePart = parts?.find(
-        (p) => p.inlineData?.data && (p.inlineData.mimeType ?? '').startsWith('image/'),
-      )
-      base64 = imagePart?.inlineData?.data
-      const mt = imagePart?.inlineData?.mimeType
-      if (mt && mt.startsWith('image/')) imageMime = mt
-      if (!base64) {
-        const msg = parseApiError(data, 'No image returned')
-        ui.update(0, 'Generation failed', msg)
-        void window.alert(`AI generation failed: ${msg}`)
-        ui.hide()
-        return
-      }
-    } else {
-      const url = googleModelEndpointUrl(modelId, state.apiKey, 'predict')
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt: finalPrompt }],
-          parameters: { sampleCount: 1 },
-        }),
-      })
-
-      const data = (await response.json()) as {
-        predictions?: { bytesBase64Encoded?: string }[]
-      }
-
-      if (!response.ok) {
-        const msg = parseApiError(data, response.statusText)
-        ui.update(0, 'Generation failed', msg)
-        void window.alert(`AI generation failed: ${msg}`)
-        ui.hide()
-        return
-      }
-
-      base64 = data.predictions?.[0]?.bytesBase64Encoded
-      if (!base64) {
-        const msg = parseApiError(data, 'No image returned')
-        ui.update(0, 'Generation failed', msg)
-        void window.alert(`AI generation failed: ${msg}`)
-        ui.hide()
-        return
-      }
+    if (!regenerate && state.photo.img) {
+      await snapshotPhotoForOutpaint(state.photo.img)
     }
+    if (!outpaintSource) throw new Error('Load a photo first.')
 
-    const blob = blobFromBase64(base64, imageMime)
-    const histId = addToHistory(blob, mode, { source: 'ai' })
+    const prepared = prepareOutpaintRequest(outpaintSource.img)
+    ui.update(55, regenerate ? 'Trying another extend...' : 'Extending photo...', 'This may take a few seconds')
+    const generated = await requestGeneratedImage({
+      prompt: buildOutpaintPrompt(extra),
+      inlineImage: { data: prepared.jpegBase64, mime: prepared.mime },
+      aspectRatio: prepared.aspectRatio,
+    })
 
-    void (async () => {
-      try {
-        const key = state.apiKey.trim()
-        if (!key) return
-        const slug = await autoNameImage(key, base64, imageMime)
-        if (mode === 'photo') {
-          state.lastGeneratedPhotoName = slug
-          const el = $('generatedPhotoNameDisplay')
-          if (el) el.textContent = `${slug}.jpg`
-        } else {
-          state.lastGeneratedMaskName = slug
-          const el = $('generatedMaskNameDisplay')
-          if (el) el.textContent = `${slug}.png`
-        }
-        patchHistorySuggestedSlug(mode, histId, slug)
-      } catch (e) {
-        console.error('Auto-naming generated asset failed:', e)
-      }
-    })()
-
-    const url = URL.createObjectURL(blob)
-    const img = new Image()
-    img.onload = () => {
-      handleImageLoad(img, mode, prompt, true, { objectUrl: url })
-      ui.hide()
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      void window.alert('Failed to decode generated image.')
-      ui.hide()
-    }
-    img.src = url
+    const genUrl = `data:${generated.mime};base64,${generated.base64}`
+    const genImg = await loadHtmlImage(genUrl)
+    const composited = compositeOutpaintResult(genImg, outpaintSource.img)
+    const blob = await canvasToPngBlob(composited)
+    const nameDataUrl = composited.toDataURL('image/jpeg', 0.82)
+    const nameBase64 = nameDataUrl.split(',')[1] ?? generated.base64
+    applyGeneratedLayerBlob(blob, 'photo', extra.trim() || 'extended_photo', nameBase64, 'image/jpeg')
+    syncPhotoExtendUi()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    ui.update(0, 'Error', msg)
-    void window.alert(`AI Generation Failed: ${msg}`)
+    ui.update(0, 'Extend failed', msg)
+    void window.alert(`AI extend failed: ${msg}`)
     ui.hide()
   }
+}
+
+function extendPhotoEdges(): void {
+  void runPhotoExtend(false)
+}
+
+function regeneratePhotoExtend(): void {
+  void runPhotoExtend(true)
 }
 
 async function autoNameLithophaneFromPhoto(): Promise<void> {
@@ -2396,7 +2489,6 @@ async function collectPackInput(): Promise<PackProjectInput> {
       pixelSizeMm: state.export.pixelSizeMm,
       borderHeightMm: state.export.borderHeightMm,
       borderOverlapMm: state.export.borderOverlapMm,
-      borderProfile: state.export.borderProfile,
     },
     generation: {
       plateThickness: readInputFloat('inpPlateThickness', DEFAULT_VALUE_PLATE_THICKNESS),
@@ -2448,6 +2540,7 @@ function loadBlobAsLayer(
 }
 
 async function applyUnpackedProject(unpacked: UnpackedProject): Promise<void> {
+  clearOutpaintSource()
   clearLayer('photo')
   clearLayer('mask')
   const json = unpacked.json
@@ -2466,8 +2559,6 @@ async function applyUnpackedProject(unpacked: UnpackedProject): Promise<void> {
     state.export.pixelSizeMm = json.export.pixelSizeMm
     state.export.borderHeightMm = json.export.borderHeightMm
     state.export.borderOverlapMm = json.export.borderOverlapMm
-    state.export.borderProfile = json.export.borderProfile ?? null
-    saveBorderProfile(state.export.borderProfile)
     setInputValue('inpBorderWidth', state.export.border)
     setInputValue('inpBorderHeight', state.export.borderHeightMm)
     setInputValue('inpBorderOverlap', state.export.borderOverlapMm)
@@ -2495,7 +2586,6 @@ async function applyUnpackedProject(unpacked: UnpackedProject): Promise<void> {
     refreshInlinePalette()
   }
 
-  updateRouterButtonState()
   updateInputsFromState()
   updateExportGridReadout()
 
@@ -2882,7 +2972,11 @@ function init(): void {
   }
 
   initPalette()
-  initRouter()
+  try {
+    localStorage.removeItem('litholab_border_profile')
+  } catch {
+    /* ignore */
+  }
   renderDefaultMasks()
   bindAllStripScrollers()
 
@@ -2952,16 +3046,8 @@ function init(): void {
     saveCustomColor,
     togglePaletteEntry,
     addColorFromPicker,
-    openRouterModal,
-    closeRouterModal,
-    cancelRouterModal,
-    applyRouterProfile,
-    clearRouterDrawing,
-    resetRouterToPreset,
-    setRouterTool,
-    setRouterCircleMode,
-    setRouterLineKeep,
-    undoRouterOp,
+    extendPhotoEdges,
+    regeneratePhotoExtend,
   })
 }
 

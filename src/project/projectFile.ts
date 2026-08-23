@@ -1,5 +1,4 @@
 import JSZip from 'jszip'
-import type { BorderProfile } from '../border/routerPresets'
 import type { PaletteJson } from '../palette/paletteManager'
 import { extForImageBlob } from '../util/fileName'
 
@@ -20,7 +19,6 @@ export interface ProjectExportSettings {
   pixelSizeMm: number
   borderHeightMm: number
   borderOverlapMm: number
-  borderProfile: BorderProfile | null
 }
 
 export interface ProjectGenerationSettings {

@@ -30,6 +30,18 @@
           <button class="cancel-btn" onclick="document.getElementById('aiPromptOverlay').style.display='none'">Cancel</button>
           <button class="ai-btn" onclick="confirmGenerateImage()">Generate ✨</button>
         </div>
+        <div id="aiPhotoExtendSection" class="ai-extend-section" hidden>
+          <p class="ai-extend-help">
+            Already have a photo? Double the canvas around it so heart or hexagon masks have room.
+            Optional prompt text is used as extra scene guidance.
+          </p>
+          <div class="modal-btns ai-extend-btns">
+            <button type="button" id="btnExtendEdges" class="ai-btn" onclick="extendPhotoEdges()" disabled>Extend edges</button>
+            <button type="button" id="btnRegenerateExtend" class="cancel-btn" onclick="regeneratePhotoExtend()" disabled>
+              Regenerate
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -161,53 +173,6 @@
             <button type="button" class="palette-action-btn subtle" onclick="showPaletteMainView()">Cancel</button>
             <button type="button" class="palette-action-btn primary" onclick="saveCustomColor()">Save Color</button>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Router Profile Overlay -->
-    <div id="routerOverlay">
-      <div class="router-box">
-        <div class="palette-header">
-          <h3 class="palette-title">BORDER ROUTER PROFILE</h3>
-          <button type="button" class="palette-close" onclick="closeRouterModal()" title="Close">&times;</button>
-        </div>
-        <p class="palette-help">Pick a numbered Leading catalog preset or build a custom profile with line cuts and circles. Left edge is the inside (lithophane side).</p>
-        <div class="router-body">
-          <div class="router-presets-panel">
-            <h4 class="router-section-title">Presets</h4>
-            <div id="routerPresetGrid" class="router-preset-grid"></div>
-          </div>
-          <div class="router-editor-panel">
-            <h4 class="router-section-title">Profile editor</h4>
-            <div class="router-canvas-wrap">
-              <canvas id="routerCanvas"></canvas>
-            </div>
-            <div class="router-tool-bar">
-              <button type="button" id="routerToolLine" class="router-tool-btn active" onclick="setRouterTool('line')">Line cut</button>
-              <button type="button" id="routerToolCircle" class="router-tool-btn" onclick="setRouterTool('circle')">Circle</button>
-              <div id="routerLineKeepGroup" class="router-mode-toggle">
-                <span class="router-mode-label">Keep</span>
-                <button type="button" id="routerKeepLeft" class="router-tool-btn active" onclick="setRouterLineKeep('left')">Left</button>
-                <button type="button" id="routerKeepRight" class="router-tool-btn" onclick="setRouterLineKeep('right')">Right</button>
-              </div>
-              <div id="routerCircleModeGroup" class="router-mode-toggle" style="display: none">
-                <span class="router-mode-label">Circle</span>
-                <button type="button" id="routerModeSubtract" class="router-tool-btn active" onclick="setRouterCircleMode('subtract')">Subtract</button>
-                <button type="button" id="routerModeAdd" class="router-tool-btn" onclick="setRouterCircleMode('add')">Add</button>
-              </div>
-            </div>
-            <div class="router-editor-tools">
-              <button type="button" class="palette-action-btn subtle" onclick="undoRouterOp()">Undo</button>
-              <button type="button" class="palette-action-btn subtle" onclick="clearRouterDrawing()">Clear</button>
-              <button type="button" class="palette-action-btn subtle" onclick="resetRouterToPreset()">Reset to preset</button>
-            </div>
-            <div id="routerError" class="router-error"></div>
-          </div>
-        </div>
-        <div class="palette-footer-actions">
-          <button type="button" class="palette-action-btn subtle" onclick="cancelRouterModal()">Cancel</button>
-          <button type="button" class="palette-action-btn primary" onclick="applyRouterProfile()">Apply</button>
         </div>
       </div>
     </div>
@@ -384,9 +349,6 @@
               <span class="dim-label">Border overlap (mm)</span>
               <input type="number" id="inpBorderOverlap" class="dim-input" step="0.01" min="0" value="0.4" onchange="onBorderOverlapChange()" />
             </div>
-          </div>
-          <div class="router-actions">
-            <button type="button" id="btnRouter" class="palette-action-btn" onclick="openRouterModal()">Router: Solid</button>
           </div>
           <p style="font-size: 11px; color: #888; margin: -4px 0 8px 0">Border height is Z-thickness of the white ring. Overlap shifts the ring inward to close gaps; width stays the same.</p>
 
