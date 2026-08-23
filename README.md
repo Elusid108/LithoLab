@@ -20,7 +20,7 @@ Lithophane generation is based on [PIXEstL](https://github.com/gaugo87/PIXEstL) 
 ## Technical Architecture
 * **Frontend/UI:** TypeScript, Vite, HTML5 Canvas API
 * **Backend/Logic:** Client-side processing, Google Gemini API (REST), JSZip
-* **Workers:** Palette quantization, STL mesh generation, and ZIP compression run in web workers (with a main-thread fallback) so the progress overlay stays live
+* **Workers:** Palette quantization, STL mesh generation, and ZIP compression run in web workers (with a main-thread fallback) so the progress overlay stays live. Generate Previews caches STL-clip rasters and preview PNGs so Download STLs can skip re-quantizing.
 * **Mesh Generation:** Custom CSG/STL pipeline (PIXEstL-aligned palette engine, polygon-prism edge geometry)
 * **Infrastructure:** Static web hosting via GitHub Pages
 
@@ -40,6 +40,11 @@ Pushes to `main` automatically deploy to GitHub Pages. The site is served at `/L
 
 ## Palette tips
 The bundled `palette/CMYK-0.10mm.json` includes 15 calibrated filament definitions (with per-layer HSL ramps); only CMY+White are active by default. Use **Manage Palette** in the sidebar to activate additional colors (e.g. Beige, Silver, Purple). Uncalibrated catalog stubs (name-only entries without layer data) are filtered out on load, import, and export. Set **Max colors** to match your AMS slot count, or `0` to use all active filaments at once.
+
+## v2.5.9 changes
+* **Cached STL export:** Generate Previews quantizes once and stores STL-clip rasters plus the preview PNGs drawn to the canvases. Download STLs meshes from that cache (no second quantize pass), so ZIP preview PNGs match the on-screen Color/Texture panes.
+* **Download gating:** Download STLs stays disabled until a preview matches the current layout and quantize settings. Changing canvas pose, width/height, border width/overlap, texture pixel size, color pixel width, layer count, pixel mode, color distance, max colors, or the palette requires Generate Previews again. Lithophane name, border height, plate thickness, layer thickness, and min/max texture thickness do not (mesh uses the current values with the cached rasters).
+* **No auto-regen:** Border width, overlap, and texture pixel size no longer auto-run Generate Previews.
 
 ## v2.5.8 changes
 * **Export name field width:** The lithophane name input now stretches to the same width as **Generate Previews** and **Download STLs**.

@@ -1678,6 +1678,7 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
 
   ui.show()
   ui.update(5, 'Building composite…', '')
+  invalidatePreviews()
 
   // Defer to the next frame so the spinner can render before heavy work runs.
   await new Promise((r) => requestAnimationFrame(r))
@@ -1685,7 +1686,6 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
   const scene = buildRectifiedScene()
   if (!scene) {
     ui.hide()
-    invalidatePreviews()
     void window.alert('Could not build composite. Check the photo/mask.')
     return
   }
@@ -1695,7 +1695,6 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
   gen.destImageHeight = scene.heightMm
   if (gen.destImageWidth <= 0 || gen.destImageHeight <= 0) {
     ui.hide()
-    invalidatePreviews()
     void window.alert('No visible content on the canvas.')
     return
   }
@@ -1705,18 +1704,17 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
   let palette: Palette
   try {
     palette = new Palette(JSON.stringify(currentPaletteJson), gen)
+    if (
+      gen.pixelCreationMethod === PixelCreationMethod.FULL &&
+      gen.colorNumber !== 0
+    ) {
+      palette.restrictFullColors(scene.composite, gen.colorNumber)
+    }
   } catch (e) {
     ui.hide()
     console.error(e)
     void window.alert(e instanceof Error ? e.message : String(e))
     return
-  }
-
-  if (
-    gen.pixelCreationMethod === PixelCreationMethod.FULL &&
-    gen.colorNumber !== 0
-  ) {
-    palette.restrictFullColors(scene.composite, gen.colorNumber)
   }
 
   ui.update(20, 'Quantizing colors…', '')
@@ -1750,6 +1748,7 @@ async function generateLayers(opts?: { saveToLibrary?: boolean }): Promise<void>
       : null
   } catch (e) {
     ui.hide()
+    invalidatePreviews()
     console.error(e)
     void window.alert(e instanceof Error ? e.message : String(e))
     return
