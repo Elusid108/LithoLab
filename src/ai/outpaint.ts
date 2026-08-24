@@ -1,7 +1,7 @@
 /** Canvas helpers for square, centered photo edge-extend (outpaint). */
 
 export const OUTPAINT_MAX_SIDE = 3840
-export const OUTPAINT_SIDE_SCALE = 1.25
+export const OUTPAINT_SIDE_SCALE = 2
 export const OUTPAINT_API_MAX_EDGE = 2048
 export const OUTPAINT_ASPECT_RATIO = '1:1'
 
@@ -56,10 +56,10 @@ export function layoutForImage(img: HTMLImageElement): OutpaintLayout {
 
 export function buildOutpaintPrompt(extra: string): string {
   const base =
-    'Expand this photograph into a seamless square 1:1 image. ' +
-    'Keep the existing content in place at the same size and pose; ' +
-    'fill only the empty margin with a natural continuation of the scene, lighting, and texture. ' +
-    'Do not enlarge, duplicate, crop, or restage the subject. No border, frame, halo, or second copy.'
+    'Pull the camera back into a seamless square 1:1 photograph. ' +
+    'Keep the existing subject centered at the same pose, occupying about the middle half of the frame. ' +
+    'Continue the real scene, lighting, and texture in the extra space. ' +
+    'Do not enlarge the subject, grow limbs or wings to the new edges, duplicate the figure, crop, or add a border, frame, or halo.'
   const trimmed = extra.trim()
   return trimmed ? `${base} Additional guidance: ${trimmed}` : base
 }
