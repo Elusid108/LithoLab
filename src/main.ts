@@ -47,14 +47,7 @@ import {
   type PaletteJson,
 } from './palette/paletteManager'
 import { DEFAULT_MASKS, defaultMaskUrl } from './data/defaultMasks'
-import {
-  buildOutpaintPrompt,
-  buildOutpaintRetryPrompt,
-  compositeOutpaintResult,
-  loadHtmlImage,
-  outpaintPadLooksSmeared,
-  prepareOutpaintRequest,
-} from './ai/outpaint'
+import { buildOutpaintPrompt, loadHtmlImage, prepareOutpaintRequest } from './ai/outpaint'
 import { flipImage, imageDataToCanvas, imageDataToPngBlob } from './util/imageUtil'
 import { decodeImportedImage, yieldForPaint } from './util/imageImport'
 import { postProcessAiMaskBlob } from './util/maskProcess'
@@ -2552,34 +2545,20 @@ async function runPhotoExtend(regenerate: boolean): Promise<void> {
 
     const prepared = prepareOutpaintRequest(outpaintSource.img)
     ui.update(55, regenerate ? 'Trying another extend...' : 'Extending photo...', 'This may take a few seconds')
-    let generated = await requestGeneratedImage({
+    const generated = await requestGeneratedImage({
       prompt: buildOutpaintPrompt(extra),
-      inlineImages: [
-        { data: prepared.originalJpegBase64, mime: prepared.mime },
-        { data: prepared.maskJpegBase64, mime: prepared.mime },
-        { data: prepared.jpegBase64, mime: prepared.mime },
-      ],
+      inlineImages: [{ data: prepared.pngBase64, mime: prepared.mime }],
       aspectRatio: prepared.aspectRatio,
     })
 
-    let genUrl = `data:${generated.mime};base64,${generated.base64}`
-    let genImg = await loadHtmlImage(genUrl)
-    if (outpaintPadLooksSmeared(genImg, outpaintSource.img)) {
-      ui.update(70, regenerate ? 'Trying another extend...' : 'Extending photo...', 'Retrying without placeholder pad')
-      generated = await requestGeneratedImage({
-        prompt: buildOutpaintRetryPrompt(extra),
-        inlineImages: [{ data: prepared.originalJpegBase64, mime: prepared.mime }],
-        aspectRatio: prepared.aspectRatio,
-      })
-      genUrl = `data:${generated.mime};base64,${generated.base64}`
-      genImg = await loadHtmlImage(genUrl)
-    }
-
-    const composited = compositeOutpaintResult(genImg, outpaintSource.img)
-    const blob = await canvasToPngBlob(composited)
-    const nameDataUrl = composited.toDataURL('image/jpeg', 0.82)
-    const nameBase64 = nameDataUrl.split(',')[1] ?? generated.base64
-    applyGeneratedLayerBlob(blob, 'photo', extra.trim() || 'extended_photo', nameBase64, 'image/jpeg')
+    const blob = blobFromBase64(generated.base64, generated.mime)
+    applyGeneratedLayerBlob(
+      blob,
+      'photo',
+      extra.trim() || 'extended_photo',
+      generated.base64,
+      generated.mime,
+    )
     syncPhotoExtendUi()
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
