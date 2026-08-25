@@ -672,6 +672,38 @@ textarea {
     margin: 0 0 12px 0;
     line-height: 1.45;
 }
+.ai-outpaint-prompt-label {
+    display: block;
+    font-size: 12px;
+    color: #ccc;
+    font-weight: 600;
+    margin: 0 0 6px 0;
+}
+textarea.ai-outpaint-prompt {
+    height: auto;
+    min-height: 120px;
+    margin-bottom: 8px;
+    resize: vertical;
+    font-size: 12px;
+    line-height: 1.4;
+}
+.ai-outpaint-prompt-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+.ai-outpaint-reset {
+    background: none;
+    border: none;
+    color: #8ab4a0;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+}
+.ai-outpaint-reset:hover {
+    color: #00d26a;
+    text-decoration: underline;
+}
 .ai-extend-btns {
     justify-content: flex-start;
 }

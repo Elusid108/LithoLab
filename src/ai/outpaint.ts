@@ -54,14 +54,15 @@ export function layoutForImage(img: HTMLImageElement): OutpaintLayout {
   return computeOutpaintLayout(w, h)
 }
 
-export function buildOutpaintPrompt(extra: string): string {
-  const base =
-    'Pull the camera back into a seamless square 1:1 photograph. ' +
-    'Keep the existing subject centered at the same pose, occupying about the middle half of the frame. ' +
-    'Continue the real scene, lighting, and texture in the extra space. ' +
-    'Do not enlarge the subject, grow limbs or wings to the new edges, duplicate the figure, crop, or add a border, frame, or halo.'
-  const trimmed = extra.trim()
-  return trimmed ? `${base} Additional guidance: ${trimmed}` : base
+export const DEFAULT_OUTPAINT_PROMPT =
+  'Pull the camera back into a seamless square 1:1 photograph. ' +
+  'Keep the existing subject centered at the same pose, occupying about the middle half of the frame. ' +
+  'Continue the real scene, lighting, and texture in the extra space. ' +
+  'Do not enlarge the subject, grow limbs or wings to the new edges, duplicate the figure, crop, or add a border, frame, or halo.'
+
+export function buildOutpaintPrompt(text: string): string {
+  const trimmed = text.trim()
+  return trimmed || DEFAULT_OUTPAINT_PROMPT
 }
 
 export function loadHtmlImage(src: string): Promise<HTMLImageElement> {

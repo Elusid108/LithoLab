@@ -53,10 +53,17 @@
         <div id="aiPhotoExtendSection" class="ai-extend-section" hidden>
           <p class="ai-extend-help">
             Already have a photo? Zoom out to a square with room around the subject so heart or
-            hexagon masks have space. Gemini continues the scene in the extra area and the full
-            generated image is used (not a blend with the original). Optional prompt text is extra
-            scene guidance.
+            hexagon masks have space. Gemini gets the letterboxed photo plus the extend prompt
+            below and returns a full generated image (not a paste-back). Edit the prompt if you
+            want; it is saved in this browser.
           </p>
+          <label class="ai-outpaint-prompt-label" for="aiOutpaintPrompt">Extend prompt</label>
+          <textarea id="aiOutpaintPrompt" class="ai-outpaint-prompt" rows="6"></textarea>
+          <div class="ai-outpaint-prompt-actions">
+            <button type="button" class="ai-outpaint-reset" onclick="resetOutpaintPrompt()">
+              Reset prompt
+            </button>
+          </div>
           <div class="modal-btns ai-extend-btns">
             <button type="button" id="btnExtendEdges" class="ai-btn" onclick="extendPhotoEdges()" disabled>Extend edges</button>
             <button type="button" id="btnRegenerateExtend" class="cancel-btn" onclick="regeneratePhotoExtend()" disabled>

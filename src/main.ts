@@ -47,7 +47,7 @@ import {
   type PaletteJson,
 } from './palette/paletteManager'
 import { DEFAULT_MASKS, defaultMaskUrl } from './data/defaultMasks'
-import { buildOutpaintPrompt, loadHtmlImage, prepareOutpaintRequest } from './ai/outpaint'
+import { buildOutpaintPrompt, DEFAULT_OUTPAINT_PROMPT, loadHtmlImage, prepareOutpaintRequest } from './ai/outpaint'
 import { flipImage, imageDataToCanvas, imageDataToPngBlob } from './util/imageUtil'
 import { decodeImportedImage, yieldForPaint } from './util/imageImport'
 import { postProcessAiMaskBlob } from './util/maskProcess'
@@ -68,6 +68,11 @@ import {
   isQuotaError,
   listLibrary,
 } from './project/projectStore'
+import {
+  deleteOutpaintSourceBlob,
+  loadOutpaintSourceBlob,
+  saveOutpaintSourceBlob,
+} from './project/outpaintSourceStore'
 import { downloadBlob, extForImageBlob, safeFileName } from './util/fileName'
 
 let currentPaletteJson: PaletteJson = loadStoredPalette(
@@ -184,6 +189,7 @@ function $(id: string): HTMLElement | null {
 const API_KEY_STORAGE = 'cmyk_api_key'
 const TEXT_MODEL_STORAGE = 'pixestl_selected_text_model'
 const IMAGE_MODEL_STORAGE = 'pixestl_selected_image_model'
+const OUTPAINT_PROMPT_STORAGE = 'litholab_outpaint_prompt'
 
 type ImageEndpointType = 'predict' | 'generateContent'
 
@@ -564,6 +570,7 @@ interface PhotoLayer {
   isGenerated: boolean
   aspect?: number
   objectUrl: string | null
+  historyId: string | null
 }
 
 interface MaskLayer {
@@ -629,12 +636,15 @@ interface LayerHistoryEntry {
   objectUrl: string
   suggestedSlug: string | null
   source: HistorySource
+  isExtendSource?: boolean
+  extendSourceBlob?: Blob
 }
 
 interface ImageLoadOptions {
   pose?: LayerPose
   resetExportDims?: boolean
   objectUrl?: string | null
+  historyId?: string | null
 }
 
 interface AppState {
@@ -720,6 +730,7 @@ const state: AppState = {
     loaded: false,
     isGenerated: false,
     objectUrl: null,
+    historyId: null,
   },
   mask: {
     img: null,
@@ -1003,6 +1014,7 @@ function handleImageLoad(
     layer.loaded = true
     layer.isGenerated = isGenerated
     layer.aspect = img.width / img.height
+    layer.historyId = opts.historyId ?? null
 
     const key = cacheKeyFromSrc(img.src)
     const cached = state.layerCache[key]
@@ -1167,7 +1179,12 @@ function bindAllStripScrollers(): void {
 function addToHistory(
   blob: Blob,
   type: ActiveLayer,
-  meta: { source: HistorySource; suggestedSlug?: string | null } = { source: 'upload' },
+  meta: {
+    source: HistorySource
+    suggestedSlug?: string | null
+    isExtendSource?: boolean
+    extendSourceBlob?: Blob
+  } = { source: 'upload' },
 ): string {
   const id = crypto.randomUUID()
   const objectUrl = URL.createObjectURL(blob)
@@ -1177,6 +1194,8 @@ function addToHistory(
     objectUrl,
     suggestedSlug: meta.suggestedSlug ?? null,
     source: meta.source,
+    isExtendSource: meta.isExtendSource,
+    extendSourceBlob: meta.extendSourceBlob,
   })
   renderHistory(type)
   return id
@@ -1191,7 +1210,7 @@ function removeHistoryEntry(type: ActiveLayer, id: string): void {
 }
 
 function restoreHistoryEntry(type: ActiveLayer, entry: LayerHistoryEntry): void {
-  if (type === 'photo') clearOutpaintSource()
+  if (type === 'photo') void applyOutpaintSourceForRestoredPhoto(entry)
   if (entry.source === 'ai') {
     if (type === 'photo') state.lastGeneratedPhotoName = entry.suggestedSlug
     else state.lastGeneratedMaskName = entry.suggestedSlug
@@ -1204,6 +1223,7 @@ function restoreHistoryEntry(type: ActiveLayer, entry: LayerHistoryEntry): void 
       const decoded = await decodeImportedImage(entry.blob, type, undefined, reportImportProgress)
       handleImageLoad(decoded.img, type, null, entry.source === 'ai', {
         objectUrl: decoded.objectUrl,
+        historyId: type === 'photo' ? entry.id : undefined,
       })
     } catch (e) {
       console.error(e)
@@ -1226,8 +1246,11 @@ function loadLayer(e: Event, type: ActiveLayer): void {
       ui.update(5, 'Importing image…', file.name)
       await yieldForPaint()
       const decoded = await decodeImportedImage(file, type, file.name, reportImportProgress)
-      addToHistory(decoded.blob, type, { source: 'upload', suggestedSlug: suggested })
-      handleImageLoad(decoded.img, type, null, false, { objectUrl: decoded.objectUrl })
+      const histId = addToHistory(decoded.blob, type, { source: 'upload', suggestedSlug: suggested })
+      handleImageLoad(decoded.img, type, null, false, {
+        objectUrl: decoded.objectUrl,
+        historyId: type === 'photo' ? histId : undefined,
+      })
     } catch (err) {
       console.error(err)
       void window.alert(
@@ -2045,6 +2068,7 @@ function clearLayer(type: ActiveLayer): void {
       loaded: false,
       isGenerated: false,
       objectUrl: null,
+      historyId: null,
     }
     const photoInput = $('photoInput') as HTMLInputElement | null
     if (photoInput) photoInput.value = ''
@@ -2231,13 +2255,28 @@ function buildMaskAiPrompt(subject: string): string {
 interface OutpaintSource {
   img: HTMLImageElement
   objectUrl: string
+  blob: Blob
+  sourceHistoryId?: string
 }
 
 let outpaintSource: OutpaintSource | null = null
 
+function persistOutpaintSourceBlob(blob: Blob): void {
+  void saveOutpaintSourceBlob(blob).catch((err) => {
+    if (!isQuotaError(err)) console.error('Failed to persist extend source:', err)
+  })
+}
+
+function clearPersistedOutpaintSource(): void {
+  void deleteOutpaintSourceBlob().catch((err) => {
+    console.error('Failed to clear saved extend source:', err)
+  })
+}
+
 function clearOutpaintSource(): void {
   if (outpaintSource?.objectUrl) URL.revokeObjectURL(outpaintSource.objectUrl)
   outpaintSource = null
+  clearPersistedOutpaintSource()
   const regen = $('btnRegenerateExtend') as HTMLButtonElement | null
   if (regen) regen.disabled = true
 }
@@ -2258,6 +2297,42 @@ function syncPhotoExtendUi(): void {
   regenBtn.title = outpaintSource
     ? 'Try another fill around the same source photo'
     : 'Extend edges first'
+  fillOutpaintPromptField()
+}
+
+async function setOutpaintSourceFromBlob(
+  blob: Blob,
+  sourceHistoryId?: string,
+  persist = true,
+): Promise<void> {
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const clone = await loadHtmlImage(objectUrl)
+    if (outpaintSource?.objectUrl) URL.revokeObjectURL(outpaintSource.objectUrl)
+    outpaintSource = { img: clone, objectUrl, blob, sourceHistoryId }
+    if (persist) persistOutpaintSourceBlob(blob)
+    syncPhotoExtendUi()
+  } catch (err) {
+    URL.revokeObjectURL(objectUrl)
+    throw err
+  }
+}
+
+async function applyOutpaintSourceForRestoredPhoto(entry: LayerHistoryEntry): Promise<void> {
+  try {
+    if (entry.extendSourceBlob) {
+      await setOutpaintSourceFromBlob(entry.extendSourceBlob)
+      return
+    }
+    if (entry.isExtendSource) {
+      await setOutpaintSourceFromBlob(entry.blob, entry.id)
+      return
+    }
+    clearOutpaintSource()
+  } catch (err) {
+    console.error('Failed to restore extend source:', err)
+    clearOutpaintSource()
+  }
 }
 
 async function snapshotPhotoForOutpaint(img: HTMLImageElement): Promise<void> {
@@ -2270,14 +2345,65 @@ async function snapshotPhotoForOutpaint(img: HTMLImageElement): Promise<void> {
   if (!ctx) throw new Error('Canvas unavailable')
   ctx.drawImage(img, 0, 0)
   const blob = await canvasToPngBlob(canvas)
-  const objectUrl = URL.createObjectURL(blob)
+  const histId = state.photo.historyId
+  if (histId) {
+    const entry = state.history.photo.find((h) => h.id === histId)
+    if (entry) entry.isExtendSource = true
+  }
+  await setOutpaintSourceFromBlob(blob, histId ?? undefined)
+}
+
+function loadStoredOutpaintPrompt(): string {
   try {
-    const clone = await loadHtmlImage(objectUrl)
-    if (outpaintSource?.objectUrl) URL.revokeObjectURL(outpaintSource.objectUrl)
-    outpaintSource = { img: clone, objectUrl }
+    const stored = localStorage.getItem(OUTPAINT_PROMPT_STORAGE)
+    if (stored && stored.trim()) return stored
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_OUTPAINT_PROMPT
+}
+
+function saveStoredOutpaintPrompt(text: string): void {
+  try {
+    localStorage.setItem(OUTPAINT_PROMPT_STORAGE, text)
+  } catch {
+    /* ignore */
+  }
+}
+
+function fillOutpaintPromptField(): void {
+  const el = $('aiOutpaintPrompt') as HTMLTextAreaElement | null
+  if (!el) return
+  if (document.activeElement === el) return
+  el.value = loadStoredOutpaintPrompt()
+}
+
+function resetOutpaintPrompt(): void {
+  const el = $('aiOutpaintPrompt') as HTMLTextAreaElement | null
+  if (el) el.value = DEFAULT_OUTPAINT_PROMPT
+  saveStoredOutpaintPrompt(DEFAULT_OUTPAINT_PROMPT)
+}
+
+function readOutpaintPrompt(): string {
+  const el = $('aiOutpaintPrompt') as HTMLTextAreaElement | null
+  const text = el?.value ?? loadStoredOutpaintPrompt()
+  saveStoredOutpaintPrompt(text)
+  return buildOutpaintPrompt(text)
+}
+
+function bindOutpaintPromptField(): void {
+  const el = $('aiOutpaintPrompt') as HTMLTextAreaElement | null
+  if (!el) return
+  el.value = loadStoredOutpaintPrompt()
+  el.addEventListener('input', () => saveStoredOutpaintPrompt(el.value))
+}
+
+async function hydratePersistedOutpaintSource(): Promise<void> {
+  try {
+    const blob = await loadOutpaintSourceBlob()
+    if (blob) await setOutpaintSourceFromBlob(blob, undefined, false)
   } catch (err) {
-    URL.revokeObjectURL(objectUrl)
-    throw err
+    console.error('Failed to restore saved extend source:', err)
   }
 }
 
@@ -2433,8 +2559,12 @@ function applyGeneratedLayerBlob(
   prompt: string | null,
   nameBase64: string,
   nameMime: string,
+  extra?: { extendSourceBlob?: Blob },
 ): void {
-  const histId = addToHistory(blob, mode, { source: 'ai' })
+  const histId = addToHistory(blob, mode, {
+    source: 'ai',
+    extendSourceBlob: extra?.extendSourceBlob,
+  })
 
   void (async () => {
     try {
@@ -2459,7 +2589,10 @@ function applyGeneratedLayerBlob(
   const url = URL.createObjectURL(blob)
   const img = new Image()
   img.onload = () => {
-    handleImageLoad(img, mode, prompt, true, { objectUrl: url })
+    handleImageLoad(img, mode, prompt, true, {
+      objectUrl: url,
+      historyId: mode === 'photo' ? histId : undefined,
+    })
     ui.hide()
   }
   img.onerror = () => {
@@ -2509,9 +2642,7 @@ async function confirmGenerateImage(): Promise<void> {
 }
 
 async function runPhotoExtend(regenerate: boolean): Promise<void> {
-  const input = $('aiPromptInput') as HTMLTextAreaElement | null
-  const extra = input?.value ?? ''
-  state.prompts.photo = extra.trim()
+  const prompt = readOutpaintPrompt()
 
   if (!regenerate) {
     if (!state.photo.loaded || !state.photo.img) {
@@ -2546,7 +2677,7 @@ async function runPhotoExtend(regenerate: boolean): Promise<void> {
     const prepared = prepareOutpaintRequest(outpaintSource.img)
     ui.update(55, regenerate ? 'Trying another extend...' : 'Extending photo...', 'This may take a few seconds')
     const generated = await requestGeneratedImage({
-      prompt: buildOutpaintPrompt(extra),
+      prompt,
       inlineImages: [{ data: prepared.pngBase64, mime: prepared.mime }],
       aspectRatio: prepared.aspectRatio,
     })
@@ -2555,9 +2686,10 @@ async function runPhotoExtend(regenerate: boolean): Promise<void> {
     applyGeneratedLayerBlob(
       blob,
       'photo',
-      extra.trim() || 'extended_photo',
+      'extended_photo',
       generated.base64,
       generated.mime,
+      { extendSourceBlob: outpaintSource.blob },
     )
     syncPhotoExtendUi()
   } catch (e) {
@@ -3215,6 +3347,8 @@ function init(): void {
   }
   renderDefaultMasks()
   bindAllStripScrollers()
+  bindOutpaintPromptField()
+  void hydratePersistedOutpaintSource()
 
   const photoInput = $('photoInput')
   const maskInput = $('maskInput')
@@ -3291,6 +3425,7 @@ function init(): void {
     addColorFromPicker,
     extendPhotoEdges,
     regeneratePhotoExtend,
+    resetOutpaintPrompt,
   })
 }
 
