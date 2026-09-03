@@ -3215,15 +3215,30 @@ function attachCanvasInteraction(): void {
   const cvs = requireCanvas()
   const c = requireCtx()
 
-  cvs.addEventListener('mousedown', (e) => {
+  // Map a pointer position to canvas bitmap coordinates. The canvas keeps its
+  // 800x600 bitmap but may be CSS-scaled to fit the viewport, so scale by the
+  // bitmap/display ratio (exactly 1 when displayed at native size).
+  const toCanvas = (e: PointerEvent): { x: number; y: number } => {
     const rect = cvs.getBoundingClientRect()
-    const m = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    const sx = rect.width > 0 ? cvs.width / rect.width : 1
+    const sy = rect.height > 0 ? cvs.height / rect.height : 1
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy }
+  }
+
+  cvs.addEventListener('pointerdown', (e) => {
+    const m = toCanvas(e)
 
     if (state.activeLayer === 'mask' && !state.mask.loaded) return
     if (state.activeLayer === 'photo' && !state.photo.loaded) return
 
     const hit = getHitHandle(state[state.activeLayer], m.x, m.y)
     if (hit) {
+      e.preventDefault()
+      try {
+        cvs.setPointerCapture(e.pointerId)
+      } catch {
+        /* capture unsupported; drag still works while the pointer stays on the canvas */
+      }
       state.isDragging = true
       state.dragAction = hit
       state.dragStart = m
@@ -3232,7 +3247,7 @@ function attachCanvasInteraction(): void {
     }
   })
 
-  window.addEventListener('mouseup', () => {
+  const endDrag = (): void => {
     const wasDragging = state.isDragging
     const init = dragInitial
     const layer = state[state.activeLayer]
@@ -3250,12 +3265,13 @@ function attachCanvasInteraction(): void {
     ) {
       invalidatePreviews()
     }
-  })
+  }
+  window.addEventListener('pointerup', endDrag)
+  window.addEventListener('pointercancel', endDrag)
 
-  cvs.addEventListener('mousemove', (e) => {
+  cvs.addEventListener('pointermove', (e) => {
     if (!state.isDragging || !state.dragAction || !dragInitial) return
-    const rect = cvs.getBoundingClientRect()
-    const m = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    const m = toCanvas(e)
     const layer = state[state.activeLayer]
     const start = state.dragStart
     const init = dragInitial

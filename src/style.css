@@ -1,36 +1,65 @@
 /* --- STYLES START --- */
+html, body {
+    height: 100%;
+}
 body { 
     font-family: 'Inter', sans-serif; 
     background: #121212; 
     color: #e0e0e0; 
-    padding: 20px; 
+    padding: 12px; 
     display: flex; 
     flex-direction: column; 
     align-items: center; 
-    min-height: 100vh;
     margin: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+img, canvas {
+    max-width: 100%;
 }
 
 .app-container { 
     display: grid; 
-    grid-template-columns: 350px 1fr; 
-    gap: 20px; 
+    grid-template-columns: 350px minmax(0, 1fr); 
+    gap: 16px; 
     width: 100%; 
-    max-width: 1400px; 
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
 }
 
 /* Sidebar Controls */
 .sidebar { 
     background: #1e1e1e; 
-    padding: 20px; 
+    padding: 16px; 
     border-radius: 12px; 
-    height: fit-content; 
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 14px;
     position: relative; /* For settings button positioning */
 }
+.sidebar-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-right: -8px;
+    padding-right: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: #444 transparent;
+}
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
 
 .app-brand {
     display: flex;
@@ -89,7 +118,8 @@ body {
 
 .control-section {
     border-bottom: 1px solid #333;
-    padding-bottom: 20px;
+    padding-bottom: 14px;
+    flex-shrink: 0;
 }
 .control-section:last-child {
     border-bottom: none;
@@ -113,7 +143,8 @@ h3 {
 
 .upload-card {
     background: #2d2d2d;
-    padding: 15px;
+    padding: 12px;
+    min-width: 0;
     border-radius: 8px;
     border: 1px solid #333;
     transition: border-color 0.2s;
@@ -400,11 +431,12 @@ input[type="file"] {
     gap: 10px; 
     align-items: center; 
     background: #2d2d2d;
-    padding: 10px;
+    padding: 8px 10px;
     border-radius: 6px;
 }
 .dim-group {
     flex: 1;
+    min-width: 0;
 }
 .dim-label {
     font-size: 10px; 
@@ -441,7 +473,7 @@ input[type="file"] {
 /* Settings Box */
 .settings-box {
     background: #262626;
-    padding: 15px;
+    padding: 8px 10px;
     border-radius: 8px;
     margin-bottom: 15px;
 }
@@ -507,20 +539,25 @@ select.text-input {
 .right-panel {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
 }
 
-/* Canvas Area - Aligned Top */
+/* Canvas Area - fills remaining height, canvas scales to fit */
 .canvas-area { 
     position: relative; 
     display: flex; 
     justify-content: center; 
-    align-items: flex-start; /* Align Top */
+    align-items: center;
     background: #1e1e1e; 
     border-radius: 12px; 
-    padding: 20px; 
+    padding: 12px; 
     overflow: hidden; 
-    min-height: 500px; 
+    flex: 1;
+    min-height: 0;
+    box-sizing: border-box;
     box-shadow: inset 0 0 40px rgba(0,0,0,0.5);
 }
 canvas#editorCanvas { 
@@ -529,7 +566,13 @@ canvas#editorCanvas {
     background-color: #262626; 
     box-shadow: 0 20px 50px rgba(0,0,0,0.5); 
     cursor: default; 
-    margin-top: 20px; 
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 4 / 3;
+    touch-action: none;
 }
 
 button.process-btn { 
@@ -563,8 +606,15 @@ button:disabled {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
-    margin-top: 10px;
+    gap: 8px;
+    margin-top: 0;
+    padding-top: 12px;
+    border-top: 1px solid #333;
+    flex-shrink: 0;
+}
+.export-row .process-btn {
+    padding: 12px;
+    font-size: 14px;
 }
 .export-row .input-group,
 .export-row .text-input,
@@ -586,25 +636,29 @@ button:disabled {
 /* Output Preview */
 .output-section { 
     background: #1e1e1e; 
-    padding: 20px; 
+    padding: 12px; 
     border-radius: 12px; 
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    flex-shrink: 0;
+    min-width: 0;
 }
 
 .preview-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 15px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
     margin-top: 0;
 }
 .channel-card {
     background: #262626;
-    padding: 12px;
+    padding: 10px;
     border-radius: 8px;
+    min-width: 0;
 }
 .channel-card canvas {
+    display: block;
     width: 100%;
-    max-height: 500px;
+    height: clamp(140px, 24vh, 300px);
     object-fit: contain;
     border: 1px solid #333;
     border-radius: 4px;
@@ -631,7 +685,10 @@ button:disabled {
     flex-direction: column;
 }
 .progress-box, .prompt-box {
-    width: 400px;
+    width: min(400px, 92vw);
+    max-height: 90vh;
+    overflow-y: auto;
+    box-sizing: border-box;
     background: #2d2d2d;
     padding: 30px;
     border-radius: 12px;
@@ -832,8 +889,9 @@ textarea.ai-outpaint-prompt {
 
 .palette-box {
     width: 520px;
-    max-width: 95vw;
+    max-width: 94vw;
     max-height: 90vh;
+    box-sizing: border-box;
     background: #2d2d2d;
     padding: 24px;
     border-radius: 12px;
@@ -1050,8 +1108,9 @@ textarea.ai-outpaint-prompt {
 
 .library-box {
     width: 720px;
-    max-width: 95vw;
+    max-width: 94vw;
     max-height: 90vh;
+    box-sizing: border-box;
     background: #2d2d2d;
     padding: 24px;
     border-radius: 12px;
@@ -1138,4 +1197,129 @@ textarea.ai-outpaint-prompt {
 }
 .library-empty.visible { display: block; }
 .library-grid:empty { display: none; }
+
+/* ============================================================
+   Responsive: tablet (768px - 1023px)
+   ============================================================ */
+@media (max-width: 1023px) and (min-width: 768px) {
+    .app-container {
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 12px;
+    }
+    .sidebar { padding: 12px; }
+    .dim-row { flex-wrap: wrap; }
+    .dim-group { min-width: 90px; }
+    .header-project-actions .settings-btn { padding: 5px 6px; }
+}
+
+/* ============================================================
+   Responsive: mobile (< 768px) - single column, no horizontal scroll
+   ============================================================ */
+@media (max-width: 767px) {
+    html, body { height: auto; }
+    body {
+        overflow: auto;
+        overflow-x: hidden;
+        padding: 0;
+        display: block;
+    }
+    .app-container {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        min-height: 100dvh;
+        gap: 8px;
+    }
+    /* Canvas + previews first, controls second (visual order only) */
+    .right-panel { order: 1; height: auto; gap: 8px; }
+    .sidebar { order: 2; }
+
+    .canvas-area {
+        flex: none;
+        padding: 8px;
+        border-radius: 0;
+    }
+    canvas#editorCanvas {
+        width: 100%;
+        height: auto;
+        max-height: none;
+    }
+    .output-section {
+        padding: 8px;
+        border-radius: 0;
+    }
+    .preview-grid { gap: 8px; }
+    .channel-card { padding: 6px; }
+    .channel-card h4 { font-size: 11px; margin-bottom: 4px; }
+    .channel-card canvas { height: 40vw; }
+
+    .sidebar {
+        height: auto;
+        overflow: visible;
+        border-radius: 0;
+        padding: 12px 12px 0;
+        gap: 12px;
+        box-shadow: none;
+    }
+    .sidebar-scroll {
+        overflow: visible;
+        margin-right: 0;
+        padding-right: 0;
+        gap: 12px;
+    }
+
+    /* Header: brand + section title/settings on one row, project actions 3-up */
+    .app-brand { margin-bottom: 0; }
+    .header-row { margin-bottom: 4px; }
+    .header-project-actions {
+        margin: 0;
+        flex-wrap: nowrap;
+    }
+    .header-project-actions .settings-btn {
+        flex: 1;
+        padding: 8px 6px;
+        font-size: 13px;
+    }
+
+    /* Inputs: 16px avoids iOS auto-zoom; rows may wrap */
+    .dim-input, .text-input, select, .unit-toggle { font-size: 16px; }
+    .dim-row { flex-wrap: wrap; }
+    .dim-group { min-width: 105px; }
+    .dim-x { display: none; }
+    .unit-toggle { margin-top: 14px; }
+    input[type="file"] { min-width: 0; max-width: 100%; }
+    .file-pick-row { flex-wrap: nowrap; }
+    .upload-card > * { max-width: 100%; }
+    .layer-btn { padding: 14px 8px; }
+
+    /* Sticky action bar */
+    .export-row {
+        position: sticky;
+        bottom: 0;
+        z-index: 20;
+        background: #1e1e1e;
+        margin: 0 -12px;
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+        border-top: 1px solid #333;
+        box-shadow: 0 -4px 12px rgba(0,0,0,0.4);
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    .export-row .input-group { grid-column: 1 / -1; }
+    .export-row .text-input { padding: 8px 10px; }
+    .export-row .process-btn {
+        padding: 12px 6px;
+        font-size: 12px;
+        letter-spacing: 0;
+        width: 100%;
+    }
+
+    /* Modals */
+    .prompt-box, .progress-box { padding: 20px; }
+    .palette-box, .library-box { padding: 16px; max-height: 92dvh; }
+    .material-tiles-grid { grid-template-columns: repeat(3, 1fr); }
+    .library-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+    .palette-footer-actions .palette-action-btn { flex: 1; }
+}
 /* --- STYLES END --- */
